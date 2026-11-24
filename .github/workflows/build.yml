@@ -1,0 +1,74 @@
+name: Build & Verify FoldStage
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  test-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Beat DSP self-test (128 BPM synthetic signal)
+        run: node desktop/core/beat-dsp.mjs
+      - name: Syntax check desktop core modules
+        run: |
+          node --check desktop/core/server.mjs
+          node --check desktop/core/importer.mjs
+          node --check desktop/core/adb.mjs
+          node --check desktop/core/audio-bridge.mjs
+          node --check desktop/start.mjs
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Fetch runtime deps & build Android APK
+        run: |
+          node scripts/fetch-deps.mjs
+          bash android/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foldstage-android-apk
+          path: android/out/foldstage.apk
+
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build macOS Audio Helper & Companion App
+        run: |
+          chmod +x desktop/native/macos/build.sh
+          zsh desktop/native/macos/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foldstage-macos-native
+          path: |
+            desktop/native/macos/build/foldstage-audio-mac
+            desktop/native/macos/build/np.dylib
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build Windows Audio & Now Playing Helper (WASAPI + GSMTC)
+        shell: pwsh
+        run: ./desktop/native/windows/build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foldstage-windows-native
+          path: desktop/native/windows/publish/foldstage-audio-win.exe

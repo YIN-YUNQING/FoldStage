@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FoldStage Companion</title>
+<style>
+  :root {
+    --bg: #0b0c12;
+    --card: #131520;
+    --card-border: rgba(255, 255, 255, 0.09);
+    --surface: #1b1e2e;
+    --text: #f3f2ff;
+    --muted: #9894b3;
+    --accent: #8b5cf6;
+    --accent-2: #38bdf8;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(circle at 12% 0%, rgba(139, 92, 246, 0.14), transparent 42%),
+                radial-gradient(circle at 88% 10%, rgba(56, 189, 248, 0.10), transparent 40%),
+                var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+    padding: 20px 22px 34px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    padding: 14px 18px; border-radius: 16px; background: var(--card); border: 1px solid var(--card-border);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 11px;
+    background: linear-gradient(135deg, #8b5cf6, #38bdf8);
+    display: grid; place-items: center; font-weight: 800; font-size: 16px; color: #fff;
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.35);
+  }
+  .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+  .brand small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+    font-size: 12px; background: var(--surface); border: 1px solid var(--card-border); color: var(--text);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .dot.err { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 13px;
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-head h2 { font-size: 14px; font-weight: 650; letter-spacing: 0.2px; }
+  .sub { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .btn {
+    border: 1px solid rgba(255,255,255,0.14); background: var(--surface); color: var(--text);
+    border-radius: 10px; padding: 8px 13px; font-size: 12.5px; font-weight: 550; cursor: pointer;
+    transition: transform .08s, background .15s, border-color .15s;
+  }
+  .btn:hover { background: #242840; border-color: rgba(255,255,255,0.24); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.primary { background: linear-gradient(135deg, #7c3aed, #2563eb); border-color: rgba(196,181,253,0.45); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ok { background: rgba(16, 185, 129, 0.18); border-color: rgba(52, 211, 153, 0.45); color: #a7f3d0; }
+  .btn.danger { background: rgba(239, 68, 68, 0.14); border-color: rgba(248, 113, 113, 0.4); color: #fecaca; }
+  .btn.sm { padding: 5px 9px; font-size: 11.5px; border-radius: 8px; }
+
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  select, input[type="text"], input[type="number"] {
+    background: #0d0f18; color: var(--text); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px; padding: 8px 11px; font-size: 13px; outline: none;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+  select { flex: 1; min-width: 210px; }
+
+  .device-box {
+    background: #0e1019; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px;
+    padding: 11px 13px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .dev-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dev-title { font-size: 13px; font-weight: 600; }
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    background: rgba(139, 92, 246, 0.18); color: #ddd6fe; border: 1px solid rgba(167,139,250,0.35);
+  }
+  .tag.perf { background: rgba(56, 189, 248, 0.18); color: #bae6fd; border-color: rgba(56, 189, 248, 0.4); }
+  .tag.ok { background: rgba(16, 185, 129, 0.18); color: #a7f3d0; border-color: rgba(52, 211, 153, 0.4); }
+  .tag.warn { background: rgba(245, 158, 11, 0.16); color: #fde68a; border-color: rgba(251, 191, 36, 0.35); }
+
+  .monitor {
+    display: grid; grid-template-columns: 76px 1fr; gap: 12px; align-items: center;
+    background: #0e1019; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 11px;
+  }
+  .art {
+    width: 76px; height: 76px; border-radius: 10px; background: #1a1d2e; overflow: hidden;
+    display: grid; place-items: center; color: #8b5cf6; font-size: 28px; font-weight: 700;
+  }
+  .art img { width: 100%; height: 100%; object-fit: cover; }
+  .bpm-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .bpm-val { font-size: 26px; font-weight: 750; font-variant-numeric: tabular-nums; color: #c4b5fd; }
+  .bar-wrap { height: 6px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 6px; }
+  .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #8b5cf6, #38bdf8); transition: width .12s; }
+  .track-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-artist { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .dropzone {
+    border: 1.5px dashed rgba(167, 139, 250, 0.42); border-radius: 14px; padding: 20px 16px;
+    text-align: center; background: rgba(139, 92, 246, 0.05); cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .dropzone.drag { background: rgba(139, 92, 246, 0.16); border-color: #c4b5fd; }
+  .dropzone strong { display: block; font-size: 13.5px; margin-bottom: 4px; }
+  .dropzone span { font-size: 12px; color: var(--muted); }
+
+  .model-list { display: flex; flex-direction: column; gap: 9px; }
+  .model-item {
+    background: #0e1019; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .model-meta { display: flex; flex-direction: column; gap: 4px; min-width: 220px; flex: 1; }
+  .model-name { font-size: 13.5px; font-weight: 650; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .model-info { font-size: 11.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+  .toast {
+    position: fixed; right: 18px; bottom: 18px; padding: 10px 15px; border-radius: 12px;
+    background: rgba(20, 22, 36, 0.96); border: 1px solid rgba(167, 139, 250, 0.45);
+    color: #fff; font-size: 12.5px; box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; pointer-events: none; z-index: 99;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">FS</div>
+      <div>
+        <h1>FoldStage Companion</h1>
+        <small>裸眼 3D 折叠屏 Live2D 舞台 · USB 设备识别 · 音源节拍同步 · 模型导入工具</small>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="pill"><span class="dot ok" id="srv-dot"></span><span id="srv-badge">127.0.0.1:8772</span></span>
+      <span class="pill"><span class="dot" id="phone-dot"></span><span id="phone-badge">未连接全息端</span></span>
+      <button class="btn sm" id="btn-preview">浏览器预览舞台</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Card 1: USB Android Device -->
+    <section class="card">
+      <div class="card-head">
+        <h2>1. USB 手机连接与同步</h2>
+        <span class="tag" id="adb-tag">ADB 检测中</span>
+      </div>
+      <div class="sub">
+        将手机通过 USB 连接到电脑并允许 USB 调试。插线后自动建立 <code>adb reverse tcp:8772</code> 隧道，可将模型同步到手机离线保存并实时推送音乐节拍。
+      </div>
+      <div class="device-box" id="device-box">
+        <div class="sub">等待通过 USB 插入 Android 设备...</div>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btn-install">安装 / 更新 FoldStage APK</button>
+        <button class="btn" id="btn-launch">在手机上启动</button>
+        <button class="btn ok" id="btn-sync">同步模型到手机</button>
+      </div>
+      <div class="sub" id="sync-note">手机同步状态：就绪</div>
+    </section>
+
+    <!-- Card 2: Audio Source & Beat Recognition -->
+    <section class="card">
+      <div class="card-head">
+        <h2>2. 电脑音源选择与节拍识别</h2>
+        <span class="tag" id="audio-tag">待机</span>
+      </div>
+      <div class="sub">
+        选择要监听的播放器 App（或选择全部系统音频）。macOS 首次使用需允许「录制系统音频」；Windows 使用 WASAPI 进程回环 + 系统媒体信息。
+      </div>
+      <div class="row">
+        <select id="app-select"><option value="all">All System Audio</option></select>
+        <button class="btn" id="btn-refresh-apps">刷新应用</button>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btn-cap-start">开始识别音乐</button>
+        <button class="btn danger" id="btn-cap-stop">停止</button>
+        <div style="flex:1"></div>
+        <input type="number" id="demo-bpm" value="128" min="60" max="200" style="width:74px" title="演示 BPM" />
+        <button class="btn" id="btn-demo">演示节拍</button>
+      </div>
+      <div class="monitor">
+        <div class="art" id="np-art">♪</div>
+        <div style="min-width:0">
+          <div class="bpm-row">
+            <span class="bpm-val" id="bpm-val">-- BPM</span>
+            <span class="sub" id="conf-val">置信 -- · 延迟 --ms</span>
+          </div>
+          <div class="track-title" id="np-title">等待音乐信号</div>
+          <div class="track-artist" id="np-artist">选择播放器后点击「开始识别音乐」</div>
+          <div class="bar-wrap"><div class="bar-fill" id="energy-bar"></div></div>
+        </div>
+      </div>
+      <div class="sub" id="audio-msg"></div>
+    </section>
+  </div>
+
+  <!-- Card 3: Live2D Model Importer -->
+  <section class="card">
+    <div class="card-head">
+      <h2>3. Live2D 模型库（导入 .zip 压缩包）</h2>
+      <span class="sub" id="models-count">0 个模型</span>
+    </div>
+    <div class="dropzone" id="dropzone">
+      <strong>拖入 Live2D `.zip` 压缩包，或点击选择文件</strong>
+      <span>自动扫描 <code>*.model3.json</code>、贴图与动作；包含 <code>mtn_play01/play02</code> 演奏动作的模型会自动识别为「音乐演奏模型」（支持站姿演奏与坐姿鼓组）</span>
+      <input type="file" id="zip-input" accept=".zip" multiple style="display:none" />
+    </div>
+    <div class="model-list" id="model-list">
+      <div class="sub">尚未导入模型。导入后点击「同步模型到手机」，或插着 USB 自动同步。</div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let state = { adb: null, audio: null, models: [], phoneClients: 0, phoneSync: null, apps: [] };
+let toastTimer = null;
+
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+async function api(url, opts = {}) {
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderAdb() {
+  const adb = state.adb;
+  if (!adb) return;
+  $('adb-tag').textContent = adb.adbAvailable ? `ADB 就绪 · :${adb.port}` : '未找到 ADB';
+  $('adb-tag').className = 'tag ' + (adb.adbAvailable ? 'ok' : 'warn');
+
+  const box = $('device-box');
+  if (!adb.adbAvailable) {
+    box.innerHTML = `<div class="sub" style="color:#fde68a">${adb.lastError || '请安装 Android Platform-Tools 并确保 adb 在 PATH 中。'}</div>`;
+  } else if (!adb.devices.length) {
+    box.innerHTML = `<div class="sub">未检测到已连接的 Android 设备。请用数据线连接手机并在手机上允许「USB 调试」。</div>`;
+  } else {
+    box.innerHTML = adb.devices.map((d) => {
+      const stCls = d.state === 'device' ? 'ok' : 'warn';
+      const stText = d.state === 'device' ? (d.reversed ? 'USB 隧道已通' : '已连接') : d.state;
+      return `
+        <div class="dev-line">
+          <div>
+            <div class="dev-title">${d.manufacturer ? d.manufacturer + ' ' : ''}${d.model}</div>
+            <div class="model-info">${d.serial} · ${d.appInstalled ? '已安装 FoldStage' : '未安装 FoldStage'}</div>
+          </div>
+          <span class="tag ${stCls}">${stText}</span>
+        </div>`;
+    }).join('');
+  }
+
+  const ready = adb.devices.some((d) => d.state === 'device');
+  $('btn-install').disabled = !ready || !adb.apkAvailable;
+  $('btn-install').title = adb.apkAvailable ? adb.apkPath : '请先构建 android/out/foldstage.apk';
+  $('btn-launch').disabled = !ready;
+  $('btn-sync').disabled = !ready;
+
+  const connected = state.phoneClients > 0;
+  $('phone-dot').className = 'dot ' + (connected ? 'ok' : ready ? 'warn' : '');
+  $('phone-badge').textContent = connected
+    ? `手机全息端已连 (${state.phoneClients})`
+    : ready ? 'USB 已连 · 等待打开 App' : '未连接全息端';
+}
+
+function renderPhoneSync() {
+  const s = state.phoneSync;
+  if (!s || !s.message) return;
+  $('sync-note').textContent = `手机同步状态：${s.deviceModel ? '[' + s.deviceModel + '] ' : ''}${s.message}`;
+}
+
+function renderAudio() {
+  const a = state.audio;
+  if (!a) return;
+  const tag = $('audio-tag');
+  if (a.state === 'running') { tag.textContent = '识别中'; tag.className = 'tag ok'; }
+  else if (a.state === 'demo') { tag.textContent = `演示 ${a.demoBpm} BPM`; tag.className = 'tag perf'; }
+  else if (a.state === 'error') { tag.textContent = '错误'; tag.className = 'tag warn'; }
+  else { tag.textContent = '待机'; tag.className = 'tag'; }
+  $('audio-msg').textContent = a.message || (a.helperAvailable ? '' : '提示：原生音频捕获助手尚未编译，可先使用「演示节拍」测试。');
+}
+
+function renderMusic(m) {
+  if (!m) return;
+  $('bpm-val').textContent = m.bpm > 0 ? `${Math.round(m.bpm)} BPM` : '-- BPM';
+  $('conf-val').textContent = `置信 ${Math.round((m.conf || 0) * 100)}% · 延迟 ${Math.round(m.outLatencyMs || 0)}ms`;
+  $('np-title').textContent = m.title || (m.playing ? '正在播放' : '已暂停');
+  $('np-artist').textContent = m.artist || '';
+  $('energy-bar').style.width = `${Math.min(100, Math.round((m.energy || 0) * 100))}%`;
+  if (m.art) {
+    $('np-art').innerHTML = `<img src="data:image/jpeg;base64,${m.art}" alt="art" />`;
+  }
+}
+
+function renderModels() {
+  const list = state.models || [];
+  $('models-count').textContent = `${list.length} 个模型`;
+  const el = $('model-list');
+  if (!list.length) {
+    el.innerHTML = `<div class="sub">尚未导入模型。拖入 Live2D <code>.zip</code> 压缩包即可自动识别。</div>`;
+    return;
+  }
+  el.innerHTML = list.map((m) => {
+    const isPerf = m.role === 'performance';
+    const roleTag = isPerf ? `<span class="tag perf">音乐演奏</span>` : `<span class="tag">站姿展示</span>`;
+    const defTag = m.isDefault ? `<span class="tag ok">默认立绘</span>` : '';
+    const perfDefTag = isPerf && m.isDefaultPerformance ? `<span class="tag ok">自动切歌演出</span>` : '';
+    return `
+      <div class="model-item">
+        <div class="model-meta">
+          <div class="model-name">${escapeHtml(m.name)} ${roleTag} ${defTag} ${perfDefTag}</div>
+          <div class="model-info">${escapeHtml(m.modelFile)} · 贴图 ${m.textureCount} · 动作 ${m.motionCount} · ${fmtBytes(m.sizeBytes)}</div>
+        </div>
+        <div class="row">
+          <button class="btn sm" onclick="renameModel('${m.id}', '${escapeAttr(m.name)}')">改名</button>
+          <button class="btn sm" onclick="toggleRole('${m.id}', '${isPerf ? 'standing' : 'performance'}')">切为${isPerf ? '站姿' : '演奏'}</button>
+          ${!isPerf ? `<button class="btn sm" onclick="setDefault('${m.id}')">设为默认</button>` : `<button class="btn sm" onclick="setDefaultPerf('${m.id}')">设为演出主力</button>`}
+          <button class="btn sm danger" onclick="removeModel('${m.id}')">删除</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function escapeAttr(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+async function refreshApps() {
+  try {
+    const res = await api('/api/apps');
+    const sel = $('app-select');
+    const prev = sel.value;
+    sel.innerHTML = (res.apps || []).map((a) => {
+      const prefix = a.id === 'all' ? '🔊 ' : (a.isAudioActive ? '🎵 ' : a.isPlayerLikely ? '▶ ' : '');
+      const sub = a.subtitle ? ` (${a.subtitle})` : '';
+      return `<option value="${escapeHtml(a.id)}">${prefix}${escapeHtml(a.name)}${escapeHtml(sub)}</option>`;
+    }).join('');
+    if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+    if (res.error) $('audio-msg').textContent = res.error;
+  } catch (e) {
+    toast('刷新应用失败：' + e.message);
+  }
+}
+
+async function uploadZipFiles(fileList) {
+  const files = [...fileList].filter((f) => f.name.toLowerCase().endsWith('.zip'));
+  if (!files.length) { toast('请选择 .zip 格式的 Live2D 模型包'); return; }
+  for (const f of files) {
+    try {
+      toast(`正在解析 ${f.name} ...`);
+      const buf = await f.arrayBuffer();
+      const res = await api(`/api/models/import?filename=${encodeURIComponent(f.name)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/zip', 'x-filename': encodeURIComponent(f.name) },
+        body: buf
+      });
+      state.models = res.models;
+      renderModels();
+      toast(`已导入「${res.model.name}」(${res.model.role === 'performance' ? '音乐演奏' : '站姿展示'})`);
+    } catch (e) {
+      toast(`导入 ${f.name} 失败：${e.message}`);
+    }
+  }
+}
+
+window.renameModel = async (id, cur) => {
+  const next = prompt('输入模型显示名称：', cur);
+  if (!next || !next.trim()) return;
+  try {
+    const res = await api(`/api/models/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: next.trim() })
+    });
+    state.models = res.models; renderModels();
+  } catch (e) { toast(e.message); }
+};
+
+window.toggleRole = async (id, role) => {
+  try {
+    const res = await api(`/api/models/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role })
+    });
+    state.models = res.models; renderModels();
+  } catch (e) { toast(e.message); }
+};
+
+window.setDefault = async (id) => {
+  try {
+    const res = await api(`/api/models/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ isDefault: true })
+    });
+    state.models = res.models; renderModels();
+  } catch (e) { toast(e.message); }
+};
+
+window.setDefaultPerf = async (id) => {
+  try {
+    const res = await api(`/api/models/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ isDefaultPerformance: true })
+    });
+    state.models = res.models; renderModels();
+  } catch (e) { toast(e.message); }
+};
+
+window.removeModel = async (id) => {
+  if (!confirm('确定从模型库删除该模型吗？同步后手机端也会移除。')) return;
+  try {
+    const res = await api(`/api/models/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    state.models = res.models; renderModels();
+    toast('已删除模型');
+  } catch (e) { toast(e.message); }
+};
+
+$('btn-preview').onclick = () => window.open('/preview/', '_blank');
+$('btn-refresh-apps').onclick = refreshApps;
+
+$('btn-cap-start').onclick = async () => {
+  const sel = $('app-select');
+  const opt = sel.options[sel.selectedIndex];
+  try {
+    await api('/api/capture', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: sel.value, name: opt ? opt.textContent.replace(/^[🔊🎵▶]\s*/, '') : sel.value })
+    });
+    toast('已开始捕获音乐节拍');
+  } catch (e) { toast(e.message); }
+};
+
+$('btn-cap-stop').onclick = async () => {
+  await api('/api/capture/stop', { method: 'POST' });
+  toast('已停止音乐捕获');
+};
+
+$('btn-demo').onclick = async () => {
+  const bpm = Number($('demo-bpm').value) || 128;
+  await api('/api/demo', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ enabled: true, bpm })
+  });
+  toast(`已开启 ${bpm} BPM 演示节拍`);
+};
+
+$('btn-install').onclick = async () => {
+  try {
+    toast('正在通过 USB 安装 FoldStage APK ...');
+    await api('/api/adb/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    toast('APK 安装完成！');
+  } catch (e) { toast('安装失败：' + e.message); }
+};
+
+$('btn-launch').onclick = async () => {
+  try {
+    await api('/api/adb/launch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    toast('已在手机上启动 FoldStage');
+  } catch (e) { toast('启动失败：' + e.message); }
+};
+
+$('btn-sync').onclick = async () => {
+  try {
+    const r = await api('/api/adb/sync', { method: 'POST' });
+    toast(r.phoneClients > 0 ? '已触发手机端模型同步' : '已刷新 USB 隧道，请打开手机上的 FoldStage 自动同步');
+  } catch (e) { toast(e.message); }
+};
+
+const dz = $('dropzone');
+const inp = $('zip-input');
+dz.onclick = () => inp.click();
+inp.onchange = () => { uploadZipFiles(inp.files); inp.value = ''; };
+dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('drag'); };
+dz.ondragleave = () => dz.classList.remove('drag');
+dz.ondrop = (e) => {
+  e.preventDefault(); dz.classList.remove('drag');
+  if (e.dataTransfer?.files?.length) uploadZipFiles(e.dataTransfer.files);
+};
+
+// Live SSE updates from companion core
+const es = new EventSource('/api/events');
+es.onmessage = (e) => {
+  try {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'snapshot') {
+      state = { ...state, ...msg };
+      $('srv-badge').textContent = `${msg.platform} · 127.0.0.1:${msg.port}`;
+      renderAdb(); renderAudio(); renderModels(); renderPhoneSync();
+      if (msg.music) renderMusic(msg.music);
+    } else if (msg.type === 'adb') {
+      state.adb = msg.adb; renderAdb();
+    } else if (msg.type === 'audio') {
+      state.audio = msg.audio; renderAudio();
+    } else if (msg.type === 'models') {
+      state.models = msg.models; renderModels();
+    } else if (msg.type === 'phone_count') {
+      state.phoneClients = msg.phoneClients; renderAdb();
+    } else if (msg.type === 'phone_sync') {
+      state.phoneSync = msg.phoneSync; renderPhoneSync();
+    } else if (msg.type === 'music') {
+      renderMusic(msg.music);
+    }
+  } catch {}
+};
+
+refreshApps();
+</script>
+</body>
+</html>

@@ -1,0 +1,1983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="theme-color" content="#040406" />
+<title>FoldStage — Naked-Eye 3D Live2D Stage</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #040406; color: #f4f2ff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    touch-action: none; user-select: none;
+  }
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; background: #040406; }
+  body.ar, html.ar, body.ar #stage { background: transparent !important; }
+  #cam-video { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+  #fold-shade { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #cam-preview {
+    position: fixed; left: 10px; top: 44px; border-radius: 10px; border: 1.5px solid rgba(167,139,250,.75);
+    display: none; pointer-events: none; z-index: 15; background: #000;
+  }
+  #cam-preview.show { display: block; }
+
+  #top-hud {
+    position: fixed; top: max(8px, env(safe-area-inset-top)); left: 12px; right: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    pointer-events: none; z-index: 20; transition: opacity .25s;
+  }
+  #top-hud.hidden, #dock-bar.hidden { opacity: 0; pointer-events: none; }
+  .pill {
+    pointer-events: auto; display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border-radius: 999px; font-size: 11px; line-height: 1;
+    background: rgba(12, 12, 18, .58); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, .13); color: rgba(244, 240, 255, .92);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #666; }
+  .dot.ok { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+  .dot.warn { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+
+  #dock-bar {
+    position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom));
+    transform: translateX(-50%); max-width: calc(100vw - 24px); overflow-x: auto;
+    display: flex; align-items: center; gap: 7px; padding: 6px 10px;
+    border-radius: 999px; z-index: 20; transition: opacity .25s;
+    background: rgba(24, 24, 34, .54); backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, .14);
+  }
+  #dock-models { display: flex; align-items: center; gap: 6px; }
+  button.ctrl {
+    border: 1px solid rgba(255, 255, 255, .15); background: rgba(255, 255, 255, .07);
+    color: #f3f0ff; border-radius: 999px; padding: 6px 10px; font-size: 11px;
+    cursor: pointer; white-space: nowrap;
+  }
+  button.ctrl.active { background: rgba(139, 92, 246, .62); border-color: rgba(196, 181, 253, .82); }
+  button.ctrl:active { transform: scale(.95); }
+  .orb-btn {
+    width: 30px; height: 30px; flex: 0 0 auto; border-radius: 50%; border: 1px solid rgba(196,181,253,.7);
+    background: radial-gradient(circle at 32% 32%, #e879f9, #6366f1 55%, #06b6d4 100%);
+    box-shadow: 0 0 16px rgba(139, 92, 246, .72); cursor: pointer;
+  }
+  .orb-btn:active { transform: scale(.90); }
+
+  #panel {
+    position: fixed; right: 12px; top: 44px; width: min(325px, calc(100vw - 24px));
+    max-height: calc(100vh - 110px); overflow-y: auto;
+    padding: 13px; border-radius: 16px; z-index: 30;
+    background: rgba(10, 10, 16, .92); backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, .16);
+    display: none; flex-direction: column; gap: 9px; font-size: 12px;
+  }
+  #panel.open { display: flex; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .row label { color: #cbc5e6; flex: 0 0 auto; }
+  .row input[type=range] { flex: 1; accent-color: #a78bfa; }
+  .val { width: 56px; text-align: right; font-variant-numeric: tabular-nums; color: #ede9fe; }
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  .seg button { flex: 1; min-width: 58px; padding: 6px 5px; font-size: 11px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10.5px; color: #93c5fd; }
+  .hint { font-size: 11px; color: #9e97bc; line-height: 1.45; }
+
+  #empty-guide {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 32px)); padding: 20px; border-radius: 18px;
+    background: rgba(14, 14, 24, .88); border: 1px solid rgba(196, 181, 253, .32);
+    backdrop-filter: blur(16px); text-align: center; z-index: 25;
+    display: none; flex-direction: column; gap: 10px;
+  }
+  #empty-guide.show { display: flex; }
+  #empty-guide h2 { font-size: 16px; color: #fff; }
+  #empty-guide p { font-size: 12.5px; color: #c8c2e2; line-height: 1.6; }
+
+  #start-overlay {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: radial-gradient(circle at 50% 45%, rgba(26,20,48,.94), #040406 85%);
+    padding: 24px; text-align: center;
+  }
+  #start-overlay.gone { display: none; }
+  #start-overlay h1 { font-size: 20px; font-weight: 650; color: #fff; letter-spacing: .5px; }
+  #start-overlay p { max-width: 410px; font-size: 13px; color: #c7c0e2; line-height: 1.65; }
+  .start-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+  .primary {
+    background: linear-gradient(135deg, #8b5cf6, #06b6d4); border: none; color: #fff;
+    padding: 12px 24px; border-radius: 999px; font-size: 14px; font-weight: 600;
+    box-shadow: 0 6px 26px rgba(139, 92, 246, .48); cursor: pointer;
+  }
+  .secondary {
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); color: #f5f3ff;
+    padding: 12px 18px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<video id="cam-video" playsinline muted autoplay></video>
+<div id="fold-shade"></div>
+<canvas id="cam-preview" width="150" height="112"></canvas>
+
+<div id="top-hud">
+  <div class="pill">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">FoldStage 启动中...</span>
+    <span id="hinge-badge" style="margin-left:6px;color:#c4b5fd;font-variant-numeric:tabular-nums;"></span>
+    <span id="usb-badge" style="margin-left:6px;color:#93c5fd;">离线</span>
+  </div>
+  <div style="display:flex;gap:6px;pointer-events:auto;">
+    <button class="ctrl" id="btn-quick-flip">反向</button>
+    <button class="ctrl" id="btn-fs">全屏</button>
+    <button class="ctrl" id="btn-panel">调参</button>
+  </div>
+</div>
+
+<div id="empty-guide">
+  <h2>尚未导入 Live2D 模型</h2>
+  <p>在电脑上打开 <b>FoldStage Companion</b>，拖入 Live2D <code>.zip</code> 模型压缩包并通过 USB 连接本机即可自动同步（同步后断开 USB 也能离线展示）。</p>
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:4px;">
+    <button class="ctrl active" id="btn-retry-sync">立即尝试 USB 同步</button>
+  </div>
+</div>
+
+<div id="dock-bar">
+  <div id="dock-models"></div>
+  <button class="orb-btn" id="btn-orb" title="触发全息声波"></button>
+  <button class="ctrl" id="btn-hide">UI</button>
+</div>
+
+<div id="panel">
+  <div class="row"><strong>FoldStage v1.0</strong><span class="mono" id="dev-badge">Generic</span></div>
+  <div class="seg">
+    <button class="ctrl active" data-mode="camera">前摄眼追</button>
+    <button class="ctrl" data-mode="touch">触控模拟</button>
+  </div>
+  <div class="seg">
+    <button class="ctrl" data-profile="fold5">Fold 5 (校准)</button>
+    <button class="ctrl" data-profile="foldable-generic">通用折叠屏</button>
+    <button class="ctrl" data-profile="flat-generic">直板 / 平板</button>
+  </div>
+  <div class="seg">
+    <button class="ctrl active" data-theme="dark">暗夜流光</button>
+    <button class="ctrl" data-theme="light">瓷白昼间</button>
+  </div>
+  <div class="seg">
+    <button class="ctrl active" data-pal="neon">霓虹紫青</button>
+    <button class="ctrl" data-pal="aqua">青蓝极光</button>
+    <button class="ctrl" data-pal="prism">虹彩流光</button>
+  </div>
+  <div class="row"><label>折角 θ</label><input type="range" id="sl-angle" min="65" max="180" step="0.5" value="100" /><span class="val" id="v-angle">100°</span></div>
+  <div class="row"><label>屏幕横宽</label><input type="range" id="sl-scrW" min="8" max="28" step="0.1" value="14.7" /><span class="val" id="v-scrW">14.7cm</span></div>
+  <div class="row"><label>半屏高度</label><input type="range" id="sl-scrH" min="3.5" max="12" step="0.1" value="6.1" /><span class="val" id="v-scrH">6.1cm</span></div>
+  <div class="row"><label>迎面倾角</label><input type="range" id="sl-pitch" min="0" max="1" step="0.05" value="0" /><span class="val" id="v-pitch">0%</span></div>
+  <div class="row"><label>转身跟随</label><input type="range" id="sl-yaw" min="0" max="1" step="0.05" value="0" /><span class="val" id="v-yaw">0%</span></div>
+  <div class="seg">
+    <button class="ctrl" id="btn-ar">AR 透明窗</button>
+    <button class="ctrl" id="btn-ar-rot">画面旋转</button>
+    <button class="ctrl" id="btn-ar-mirror">画面镜像</button>
+    <button class="ctrl" id="btn-ar-lock">锁曝光</button>
+    <button class="ctrl" id="btn-ar-desk">取桌面</button>
+    <button class="ctrl" id="btn-ar-tex">桌面纹理</button>
+  </div>
+  <div class="row"><label>背景距离</label><input type="range" id="sl-arD" min="15" max="250" step="1" value="60" /><span class="val" id="v-arD">60cm</span></div>
+  <div class="row"><label>主摄左右</label><input type="range" id="sl-arX" min="-7.4" max="7.4" step="0.1" value="-4.5" /><span class="val" id="v-arX">-4.5</span></div>
+  <div class="row"><label>主摄上下</label><input type="range" id="sl-arS" min="0" max="6.1" step="0.1" value="4.5" /><span class="val" id="v-arS">4.5</span></div>
+  <div class="row"><label>背景曝光</label><input type="range" id="sl-arEv" min="-8" max="8" step="1" value="0" /><span class="val" id="v-arEv">0</span></div>
+  <div class="row"><label>桌面亮度</label><input type="range" id="sl-arDesk" min="0.4" max="1.8" step="0.05" value="1" /><span class="val" id="v-arDesk">1.00×</span></div>
+  <div class="row"><label>节拍偏移</label><input type="range" id="sl-beatoff" min="-300" max="300" step="5" value="0" /><span class="val" id="v-beatoff">0ms</span></div>
+  <div class="seg">
+    <button class="ctrl active" id="btn-autoperf">有音乐自动切换演出</button>
+    <button class="ctrl" id="btn-local-demo">本地演示节拍</button>
+    <button class="ctrl" id="btn-sync-now">同步模型</button>
+  </div>
+  <div class="row"><label>视点左右</label><input type="range" id="sl-trimx" min="-12" max="12" step="0.5" value="0" /><span class="val" id="v-trimx">0cm</span></div>
+  <div class="row"><label>视点上下</label><input type="range" id="sl-trimy" min="-12" max="12" step="0.5" value="0" /><span class="val" id="v-trimy">0cm</span></div>
+  <div class="row"><label>分层纵深</label><input type="range" id="sl-depth" min="0" max="2.5" step="0.05" value="1" /><span class="val" id="v-depth">1.00×</span></div>
+  <div class="row"><label>角色身高</label><input type="range" id="sl-scale" min="0.6" max="1.5" step="0.05" value="1.00" /><span class="val" id="v-scale">1.00×</span></div>
+  <div class="row"><label>站位前后</label><input type="range" id="sl-z" min="0.4" max="4.5" step="0.1" value="1.6" /><span class="val" id="v-z">+1.6cm</span></div>
+  <div class="row"><label>窗口亮度</label><input type="range" id="sl-scr" min="0.25" max="1.00" step="0.02" value="0.78" /><span class="val" id="v-scr">78%</span></div>
+  <div class="row"><label>上屏匹配</label><input type="range" id="sl-topdim" min="0.35" max="1.00" step="0.02" value="0.62" /><span class="val" id="v-topdim">0.62×</span></div>
+  <div class="row"><label>折痕压暗</label><input type="range" id="sl-crease" min="0" max="0.9" step="0.02" value="0.40" /><span class="val" id="v-crease">0.40</span></div>
+  <div class="row"><label>折痕弧度</label><input type="range" id="sl-gap" min="0" max="1.20" step="0.02" value="0.40" /><span class="val" id="v-gap">4.0mm</span></div>
+  <div class="seg">
+    <button class="ctrl" id="btn-cam">换镜头</button>
+    <button class="ctrl" id="btn-rot">重测方向</button>
+    <button class="ctrl" id="btn-flipx">镜像左右</button>
+    <button class="ctrl" id="btn-preview">前摄小窗</button>
+  </div>
+  <div class="mono" id="eye-readout" style="white-space:pre-wrap">眼位 —</div>
+  <div class="hint">
+    <b>适配说明</b>：目前仅在三星 Galaxy Z Fold 5 上完成实机校准；其他折叠屏及直板设备请按需切换上方设备预设，并微调「屏幕尺寸」「折角」「视点左右/上下」。
+  </div>
+</div>
+
+<div id="start-overlay">
+  <h1>FoldStage</h1>
+  <p>把折叠屏手机半折放在桌上：下半屏是地板，上半屏是背墙。前摄实时追踪你的眼睛位置，为当前视角绘制裸眼 3D Live2D 舞台（非折叠屏自动进入展平退化模式）。</p>
+  <div class="start-btns">
+    <button class="primary" id="btn-start-cam">开启前摄眼追 + 全屏</button>
+    <button class="secondary" id="btn-start-touch">触控预览</button>
+  </div>
+</div>
+
+<script src="vendor/live2dcubismcore.min.js"></script>
+<script src="vendor/pixi.min.js"></script>
+<script src="vendor/cubism4.min.js"></script>
+
+<script type="module">
+import * as THREE from './vendor/three.module.min.js';
+
+const IS_NATIVE = !!window.NativeFoldStage;
+const DEVICE_INFO = (() => {
+  try { return IS_NATIVE ? JSON.parse(window.NativeFoldStage.getDeviceInfo() || '{}') : { model: 'Browser', profile: 'flat-generic', isFold5: false, hasHingeSensor: false, companionUrl: location.origin }; }
+  catch { return { model: 'Unknown', profile: 'flat-generic', isFold5: false, hasHingeSensor: false, companionUrl: 'http://127.0.0.1:8772' }; }
+})();
+const COMPANION_BASE = DEVICE_INFO.companionUrl || 'http://127.0.0.1:8772';
+const MODEL_MANIFEST_URL = IS_NATIVE ? '/local/models' : '/v1/models';
+const MODEL_FILE_PREFIX = IS_NATIVE ? 'models/' : '/v1/models/';
+
+// Sync preferences with Android SharedPreferences
+if (IS_NATIVE) {
+  try {
+    const saved = JSON.parse(window.NativeFoldStage.getPrefs() || '{}');
+    for (const [k, v] of Object.entries(saved)) if (localStorage.getItem(k) == null) localStorage.setItem(k, v);
+  } catch {}
+  const rawSet = localStorage.setItem.bind(localStorage);
+  let prefsTimer = null;
+  localStorage.setItem = (k, v) => {
+    rawSet(k, v);
+    if (!String(k).startsWith('foldstage.')) return;
+    clearTimeout(prefsTimer);
+    prefsTimer = setTimeout(pushPrefs, 500);
+  };
+  function pushPrefs() {
+    const o = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key.startsWith('foldstage.')) o[key] = localStorage.getItem(key);
+    }
+    try { window.NativeFoldStage.setPrefs(JSON.stringify(o)); } catch {}
+  }
+  setTimeout(pushPrefs, 1000);
+}
+
+// ===== 1. Device Profiles (Galaxy Z Fold 5 calibrated + Generic Fallback) =====
+const DEVICE_PROFILES = {
+  'fold5':            { longCm: 14.70, halfCm: 6.10, camX: -5.95, camS: 3.05, focalPerLong: 0.77, angleDeg: 100, bendR: 0.40, creaseDim: 0.40, topDim: 0.62, sensorMode: 'accel' },
+  'foldable-generic': { longCm: 14.80, halfCm: 6.20, camX:  0.00, camS: 5.20, focalPerLong: 0.78, angleDeg: 105, bendR: 0.35, creaseDim: 0.25, topDim: 0.75, sensorMode: 'hinge' },
+  'flat-generic':     { longCm: 15.00, halfCm: 4.20, camX:  0.00, camS: 3.80, focalPerLong: 0.78, angleDeg: 180, bendR: 0.00, creaseDim: 0.00, topDim: 1.00, sensorMode: 'manual' }
+};
+
+const initialProfileKey = localStorage.getItem('foldstage.profile') || DEVICE_INFO.profile || 'flat-generic';
+const initProf = DEVICE_PROFILES[initialProfileKey] || DEVICE_PROFILES['flat-generic'];
+const HUMAN_IPD_CM = 6.3;
+
+const state = {
+  profile: initialProfileKey,
+  longCm: Number(localStorage.getItem('foldstage.longCm') ?? initProf.longCm),
+  halfCm: Number(localStorage.getItem('foldstage.halfCm') ?? initProf.halfCm),
+  camX: initProf.camX,
+  camS: initProf.camS,
+  focalPerLong: initProf.focalPerLong,
+  mode: 'touch',
+  theme: 'dark',
+  pal: 'neon',
+  modelId: null,
+  angleDeg: initProf.angleDeg,
+  angleTarget: initProf.angleDeg,
+  nativeHinge: false,
+  charScale: Number(localStorage.getItem('foldstage.scale') ?? 1.0),
+  charZ: Number(localStorage.getItem('foldstage.charZ') ?? 1.6),
+  trimX: Number(localStorage.getItem('foldstage.trimX') ?? 0),
+  trimY: Number(localStorage.getItem('foldstage.trimY') ?? 0),
+  pitchFollow: 0.0,
+  yawFollow: 0.0,
+  atlasMs: 0,
+  depthSpread: Number(localStorage.getItem('foldstage.depth') ?? 1.0),
+  bendR: Number(localStorage.getItem('foldstage.bendR') ?? initProf.bendR),
+  creaseDim: Number(localStorage.getItem('foldstage.crease') ?? initProf.creaseDim),
+  topDim: Number(localStorage.getItem('foldstage.topDim') ?? initProf.topDim),
+  screenBright: 0.78,
+  flipX: localStorage.getItem('foldstage.flipX') === '1',
+  showPreview: false,
+  hudHidden: false,
+  eyeTarget: new THREE.Vector3(0, 25.9, 33.1),
+  eyeSmooth: new THREE.Vector3(0, 25.9, 33.1),
+  faceDetected: false,
+  camRunning: false,
+  camRot: (v => (v === null || v === '' ? null : Number(v)))(localStorage.getItem('foldstage.camRot')),
+  missCount: 0,
+  lastError: null,
+  rippleT: 99
+};
+
+const canvas = document.getElementById('stage');
+const videoEl = document.getElementById('cam-video');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const usbBadge = document.getElementById('usb-badge');
+const eyeReadout = document.getElementById('eye-readout');
+const panelEl = document.getElementById('panel');
+const topHud = document.getElementById('top-hud');
+const dockBar = document.getElementById('dock-bar');
+const dockModels = document.getElementById('dock-models');
+const emptyGuide = document.getElementById('empty-guide');
+const startOverlay = document.getElementById('start-overlay');
+document.getElementById('dev-badge').textContent = DEVICE_INFO.model || state.profile;
+
+function setStatus(msg, kind = 'warn') {
+  statusText.textContent = msg;
+  statusDot.className = 'dot ' + (kind === 'ok' ? 'ok' : kind === 'warn' ? 'warn' : '');
+}
+
+// ===== 2. Three.js Renderer & Procedural Hologram Floor / Back Wall =====
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.setClearColor(0x040406, 1);
+renderer.setScissorTest(true);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x040406);
+const camBand = new THREE.PerspectiveCamera(45, 1, 0.4, 240);
+
+const PALETTES = {
+  neon:  [0xa855f7, 0xec4899, 0x38bdf8, 0xc084fc, 0x818cf8],
+  aqua:  [0x22d3ee, 0x38bdf8, 0x2dd4bf, 0x818cf8, 0x67e8f9],
+  prism: [0xf472b6, 0x818cf8, 0x38bdf8, 0x34d399, 0xfbbf24]
+};
+const makeColorArray = (hexList) => hexList.map(h => new THREE.Color(h));
+
+const commonPalGLSL = `
+uniform vec3 uCols[5];
+vec3 flowPal(float h) {
+  float x = fract(h) * 5.0;
+  int idx = int(floor(x));
+  float f = smoothstep(0.0, 1.0, fract(x));
+  vec3 a = uCols[0], b = uCols[1];
+  if (idx == 1) { a = uCols[1]; b = uCols[2]; }
+  else if (idx == 2) { a = uCols[2]; b = uCols[3]; }
+  else if (idx == 3) { a = uCols[3]; b = uCols[4]; }
+  else if (idx == 4) { a = uCols[4]; b = uCols[0]; }
+  return mix(a, b, f);
+}
+`;
+
+const floorUniforms = {
+  uCols:   { value: makeColorArray(PALETTES.neon) },
+  uDot:    { value: new THREE.Vector4(0.45, 0.038, 0.55, 5.0) },
+  uPool:   { value: new THREE.Vector4(0.0, 1.6, 2.35, 1.0) },
+  uRipple: { value: new THREE.Vector4(0.0, 2.4, 0.0, 0.0) },
+  uFlow:   { value: 0.0 },
+  uBright: { value: 1.0 },
+  uLight:  { value: 0.0 },
+  uReach:  { value: new THREE.Vector2(8.5, 22.0) },
+  uAR: { value: 0 }, uDesk: { value: new THREE.Color(0.35, 0.3, 0.26) }, uDeskTex: { value: null }, uDeskTexOn: { value: 0 }, uDeskScale: { value: 9.0 }
+};
+
+const floorMat = new THREE.ShaderMaterial({
+  uniforms: floorUniforms,
+  depthWrite: true,
+  vertexShader: `
+    varying vec2 vP;
+    void main() {
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vP = w.xz;
+      gl_Position = projectionMatrix * viewMatrix * w;
+      gl_Position.z = min(gl_Position.z, gl_Position.w * 0.9999);
+    }
+  `,
+  fragmentShader: `
+    precision highp float;
+    uniform vec4 uDot; uniform vec4 uPool; uniform vec4 uRipple;
+    uniform float uFlow; uniform float uBright; uniform float uLight; uniform vec2 uReach;
+    uniform float uAR; uniform vec3 uDesk; uniform sampler2D uDeskTex; uniform float uDeskTexOn; uniform float uDeskScale;
+    ${commonPalGLSL}
+    varying vec2 vP;
+    void main() {
+      vec2 p = vP;
+      if (uAR > 0.5 && p.y < 0.0) discard;
+      float pitch = uDot.x, rad = uDot.y, majorN = uDot.w;
+      float reach = length(p - uPool.xy * 0.35);
+      float fade = 1.0 - smoothstep(uReach.x, uReach.y, reach);
+      vec2 idx = floor(p / pitch + 0.5);
+      vec2 cell = p - idx * pitch;
+      float d = length(cell);
+      float fw = max(fwidth(d), 0.004);
+      vec2 m = abs(mod(idx + 0.5 * majorN, majorN) - 0.5 * majorN);
+      float isMajor = step(m.x, 0.25) * step(m.y, 0.25);
+      float r = rad * (1.0 + 0.42 * isMajor);
+      float dotMask = 1.0 - smoothstep(r - fw, r + fw, d);
+      float dp = distance(p, uPool.xy), R = max(uPool.z, 0.01);
+      float pool = exp(-1.7 * (dp / R) * (dp / R)) * uPool.w;
+      float ringOuter = exp(-pow((dp - R * 0.92) / (R * 0.10), 2.0)) * uPool.w;
+      float ringSoft  = exp(-pow((dp - R * 0.90) / (R * 0.32), 2.0)) * uPool.w;
+      float ang = atan(p.y - uPool.y, p.x - uPool.x) / 6.2831853;
+      vec3 glow = flowPal(ang + uFlow * 0.10 + dp * 0.12);
+      float rd = distance(p, uRipple.xy) - uRipple.z;
+      float wave = exp(-pow(rd / 0.55, 2.0)) * uRipple.w;
+      vec3 waveCol = flowPal(atan(p.y - uRipple.y, p.x - uRipple.x) / 6.2831853 + uFlow * 0.16);
+      vec3 bgDark  = vec3(0.014, 0.016, 0.024) * (0.30 + 0.70 * fade);
+      vec3 bgLight = mix(vec3(0.955, 0.953, 0.945), vec3(0.91, 0.905, 0.93), 1.0 - fade);
+      vec3 col = mix(bgDark, bgLight, uLight);
+      vec3 darkGlow = glow * (pool * 0.24 + ringSoft * 0.30 + ringOuter * 0.65) + waveCol * wave * 0.45;
+      vec3 lightGlow = glow * (pool * 0.18 + ringSoft * 0.22 + ringOuter * 0.50) + waveCol * wave * 0.35;
+      col = mix(col + darkGlow * uBright, mix(col, lightGlow, clamp((pool*0.25 + ringSoft*0.3 + ringOuter*0.6 + wave*0.45), 0.0, 0.75)), uLight);
+      float dotBoost = (0.36 + 0.34 * isMajor) * fade + pool * 0.65 + ringSoft * 0.75 + wave * 1.1;
+      vec3 dotColDark  = mix(vec3(0.84, 0.87, 0.98), glow, clamp(pool * 0.8 + ringSoft * 0.9, 0.0, 1.0));
+      dotColDark = mix(dotColDark, waveCol, clamp(wave * 1.2, 0.0, 1.0));
+      vec3 dotColLight = mix(vec3(0.45, 0.44, 0.56), glow * 0.75, clamp(pool * 0.7 + ringSoft * 0.8 + wave, 0.0, 1.0));
+      vec3 finalDark  = col + dotColDark * dotMask * dotBoost * uBright;
+      vec3 finalLight = mix(col, dotColLight, clamp(dotMask * (0.45 + 0.35 * isMajor + pool * 0.5 + wave * 0.7) * fade, 0.0, 0.88));
+      vec3 outCol = mix(finalDark, finalLight, uLight);
+      if (uAR > 0.5) {
+        vec3 desk = uDesk;
+        if (uDeskTexOn > 0.5) desk = texture2D(uDeskTex, fract(p / uDeskScale)).rgb;
+        vec3 fx = glow * (pool * 0.18 + ringSoft * 0.22 + ringOuter * 0.5) + waveCol * wave * 0.35;
+        outCol = desk + fx * uBright * 0.8 + dotColDark * dotMask * (pool * 0.4 + wave * 0.8) * 0.5;
+      }
+      gl_FragColor = vec4(outCol, 1.0);
+    }
+  `
+});
+
+const floorPlane = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMat);
+floorPlane.rotation.x = -Math.PI / 2;
+floorPlane.position.set(0, 0, -4.0);
+floorPlane.frustumCulled = false;
+scene.add(floorPlane);
+
+const backUniforms = {
+  uCols: { value: makeColorArray(PALETTES.neon) },
+  uDot:  { value: new THREE.Vector4(0.55, 0.036, 0.45, 5.0) },
+  uFlow: { value: 0.0 }, uLight: { value: 0.0 }, uBright: { value: 0.62 }
+};
+const backDotWall = new THREE.Mesh(new THREE.PlaneGeometry(34, 18), new THREE.ShaderMaterial({
+  uniforms: backUniforms, transparent: true, depthWrite: false,
+  vertexShader: `varying vec2 vXY; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vXY = w.xy; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `
+    precision highp float;
+    uniform vec4 uDot; uniform float uFlow; uniform float uLight; uniform float uBright;
+    ${commonPalGLSL}
+    varying vec2 vXY;
+    void main() {
+      float pitch = uDot.x, rad = uDot.y, majorN = uDot.w;
+      vec2 idx = floor(vXY / pitch + 0.5); vec2 cell = vXY - idx * pitch;
+      float d = length(cell), fw = max(fwidth(d), 0.005);
+      vec2 m = abs(mod(idx + 0.5 * majorN, majorN) - 0.5 * majorN);
+      float isMajor = step(m.x, 0.25) * step(m.y, 0.25);
+      float r = rad * (1.0 + 0.45 * isMajor);
+      float dotMask = 1.0 - smoothstep(r - fw, r + fw, d);
+      float radial = length(vec2(vXY.x * 0.72, (vXY.y - 3.6) * 0.95));
+      float fade = (1.0 - smoothstep(4.5, 13.5, radial)) * smoothstep(0.0, 1.2, vXY.y);
+      vec3 tint = flowPal(vXY.x * 0.04 + uFlow * 0.04);
+      vec3 colDark  = mix(vec3(0.80, 0.84, 0.98), tint, 0.22);
+      vec3 colLight = mix(vec3(0.50, 0.49, 0.62), tint * 0.7, 0.25);
+      float a = dotMask * (0.42 + 0.36 * isMajor) * fade;
+      gl_FragColor = vec4(mix(colDark * uBright, colLight * (0.45 + 0.55 * uBright), uLight), a);
+    }
+  `
+}));
+backDotWall.position.set(0, 9.0, -4.8);
+scene.add(backDotWall);
+
+// ===== 3. Universal Live2D Canvas, Auto-Framing & Performance Stage =====
+const PIXI_W = 1024, PIXI_H = 1536;
+const pixiApp = new PIXI.Application({ width: PIXI_W, height: PIXI_H, backgroundAlpha: 0, antialias: true, preserveDrawingBuffer: true });
+const live2dTex = new THREE.CanvasTexture(pixiApp.view);
+live2dTex.colorSpace = THREE.SRGBColorSpace;
+live2dTex.minFilter = THREE.LinearFilter;
+live2dTex.magFilter = THREE.LinearFilter;
+
+const PLANE_H = 5.8;
+const PLANE_W = PLANE_H * (PIXI_W / PIXI_H);
+const planeGeo = new THREE.PlaneGeometry(PLANE_W, PLANE_H);
+planeGeo.translate(0, PLANE_H / 2, 0);
+const charMat = new THREE.MeshBasicMaterial({ map: live2dTex, transparent: true, alphaTest: 0.02, side: THREE.DoubleSide });
+const charPlane = new THREE.Mesh(planeGeo, charMat);
+charPlane.position.set(0, 0.01, state.charZ);
+scene.add(charPlane);
+
+// Optional automatic 4-layer depth for wide drum-kit models whose part IDs match
+const DRUM_LAYER_SPEC = {
+  layers: [
+    { name: 'Body + Arms + Stool', z: -0.55 },
+    { name: 'Cymbals & Stands',    z:  0.00 },
+    { name: 'Toms',                z:  0.40 },
+    { name: 'Kick & Pedals',       z:  0.80 }
+  ],
+  partLayer: { Part75: 0, Part92: 0, Part201: 0, Part25: 0, Part3: 1, Part7: 1, Part8: 1, Part11: 1, Part13: 1, Part6: 2, Part23: 3, Part4: 3, Part5: 3 }
+};
+
+const VIEW_STAND = { texW: PIXI_W, texH: PIXI_H, planeH: PLANE_H, headroom: 0.06, stage: false, layers: null };
+let curView = VIEW_STAND;
+let curModelMeta = null;
+let lastAtlasMs = 0;
+let curLayer = -1;
+const layerGroup = new THREE.Group();
+layerGroup.visible = false;
+scene.add(layerGroup);
+
+function buildLayerMeshes(n) {
+  while (layerGroup.children.length) { const c = layerGroup.children.pop(); c.geometry.dispose(); }
+  for (let i = 0; i < n; i++) {
+    const g = new THREE.PlaneGeometry(PLANE_W, PLANE_H);
+    g.translate(0, PLANE_H / 2, 0);
+    const uv = g.attributes.uv;
+    for (let k = 0; k < uv.count; k++) uv.setY(k, 1 - (i + 1) / n + uv.getY(k) / n);
+    layerGroup.add(new THREE.Mesh(g, charMat));
+  }
+}
+
+function hasDrumKitParts(m) {
+  const ids = m?.internalModel?.coreModel?._model?.parts?.ids;
+  if (!ids || !ids.length) return false;
+  const set = new Set(ids);
+  return set.has('Part75') && set.has('Part3') && set.has('Part6') && set.has('Part23');
+}
+
+function installLayering(m, view) {
+  const cm = m.internalModel.coreModel, mdl = cm._model;
+  const parts = mdl.parts, d = mdl.drawables;
+  const layerOf = new Int8Array(d.count);
+  for (let i = 0; i < d.count; i++) {
+    let p = d.parentPartIndices[i], L = 0;
+    while (p >= 0) { const v = view.partLayer[parts.ids[p]]; if (v != null) { L = v; break; } p = parts.parentIndices[p]; }
+    layerOf[i] = L;
+  }
+  const orig = cm.getDrawableDynamicFlagIsVisible.bind(cm);
+  cm.getDrawableDynamicFlagIsVisible = (i) => (curLayer < 0 || layerOf[i] === curLayer) && orig(i);
+}
+
+function renderLayerAtlas() {
+  const v = curView, n = v.layers.length, r = pixiApp.renderer;
+  const baseY = live2dModel.position.y;
+  for (let i = 0; i < n; i++) {
+    curLayer = i;
+    live2dModel.position.y = baseY + i * v.texH;
+    r.render(pixiApp.stage, { clear: i === 0 });
+  }
+  live2dModel.position.y = baseY;
+  curLayer = -1;
+}
+
+const viewScale = { x: 1, y: 1 };
+function applyView(v) {
+  curView = v;
+  if (pixiApp.renderer.width !== v.texW || pixiApp.renderer.height !== v.texH) {
+    pixiApp.renderer.resize(v.texW, v.texH);
+    live2dTex.dispose();
+  }
+  viewScale.y = v.planeH / PLANE_H;
+  viewScale.x = (v.planeH * v.texW / v.texH) / PLANE_W;
+}
+
+// Measure opaque pixel bounding box so ANY imported Live2D model (standing, wide, drum, guitar, etc.)
+// is horizontally centered and stands with its feet flush on the bottom edge of the quad (= floor or stage riser).
+const fitCanvas = document.createElement('canvas');
+const fitCtx = fitCanvas.getContext('2d', { willReadFrequently: true });
+function measureOpaqueBounds(texW, texH) {
+  pixiApp.render();
+  const fw = 256, fh = Math.max(64, Math.round(256 * texH / texW));
+  fitCanvas.width = fw; fitCanvas.height = fh;
+  fitCtx.clearRect(0, 0, fw, fh);
+  fitCtx.drawImage(pixiApp.view, 0, 0, fw, fh);
+  const d = fitCtx.getImageData(0, 0, fw, fh).data;
+  let x0 = fw, x1 = -1, y0 = fh, y1 = -1;
+  for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+    if (d[(y * fw + x) * 4 + 3] > 36) {
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < x0 || y1 < y0) return null;
+  // Also measure horizontal center of the feet (bottom 12% of silhouette) so asymmetric instruments
+  // (e.g. guitar/bass necks extending right) don't push the character's feet off stage center.
+  const footTop = Math.max(y0, Math.floor(y1 - (y1 - y0) * 0.12));
+  let fx0 = fw, fx1 = -1;
+  for (let y = footTop; y <= y1; y++) for (let x = 0; x < fw; x++) {
+    if (d[(y * fw + x) * 4 + 3] > 36) {
+      if (x < fx0) fx0 = x; if (x > fx1) fx1 = x;
+    }
+  }
+  const k = texW / fw;
+  const footCx = (fx1 >= fx0) ? ((fx0 + fx1 + 1) * 0.5 * k) : ((x0 + x1 + 1) * 0.5 * k);
+  return { bx0: x0 * k, bx1: (x1 + 1) * k, by0: y0 * k, by1: (y1 + 1) * k, footCx };
+}
+
+function fitToContent(m, view) {
+  const b = measureOpaqueBounds(view.texW, view.texH);
+  if (!b) return null;
+  const bw = b.bx1 - b.bx0, bh = b.by1 - b.by0;
+  const anchorX = view.centerOnFeet ? b.footCx : (b.bx0 + b.bx1) * 0.5;
+  const maxHalfSpan = Math.max(anchorX - b.bx0, b.bx1 - anchorX);
+  const gX = view.centerOnFeet
+    ? (view.texW * 0.47) / Math.max(1, maxHalfSpan)
+    : (view.texW * 0.94) / Math.max(1, bw);
+  const gY = (view.texH * (0.97 - (view.headroom || 0))) / Math.max(1, bh);
+  const g = Math.min(gX, gY);
+  const px = m.position.x, py = m.position.y;
+  m.scale.set(m.scale.x * g);
+  m.position.set(view.texW / 2 - (anchorX - px) * g, view.texH * 0.995 - (b.by1 - py) * g);
+  return { aspect: bw / Math.max(1, bh), bw, bh };
+}
+
+function triggerRipple() { state.rippleT = 0.0; }
+
+// ===== 3.5 Live Performance Stage (riser + contact shadow + spotlights + dual side screens) =====
+const STAGE = { w: 9.6, d: 3.0, h: 0.5, zOff: 0.0 };
+const stageGroup = new THREE.Group();
+stageGroup.visible = false;
+scene.add(stageGroup);
+
+const riserMat = new THREE.MeshBasicMaterial({ color: 0x15131c });
+const riserTopMat = new THREE.MeshBasicMaterial({ color: 0x1d1a26 });
+const riser = new THREE.Mesh(new THREE.BoxGeometry(STAGE.w, STAGE.h, STAGE.d),
+  [riserMat, riserMat, riserTopMat, riserMat, riserMat, riserMat]);
+riser.position.y = STAGE.h / 2;
+stageGroup.add(riser);
+
+const stripMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
+const stripFront = new THREE.Mesh(new THREE.BoxGeometry(STAGE.w + 0.04, 0.07, 0.04), stripMat);
+stripFront.position.set(0, STAGE.h - 0.06, STAGE.d / 2 + 0.005);
+stageGroup.add(stripFront);
+const stripLow = new THREE.Mesh(new THREE.BoxGeometry(STAGE.w + 0.04, 0.04, 0.04), stripMat);
+stripLow.position.set(0, 0.05, STAGE.d / 2 + 0.005);
+stageGroup.add(stripLow);
+
+function radialTex(inner, outer) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, inner); gr.addColorStop(1, outer);
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(8.2, 3.2),
+  new THREE.MeshBasicMaterial({ map: radialTex('rgba(0,0,0,0.85)', 'rgba(0,0,0,0)'), transparent: true, depthWrite: false }));
+shadow.rotation.x = -Math.PI / 2; shadow.position.set(0, STAGE.h + 0.005, 0);
+stageGroup.add(shadow);
+
+const spill = new THREE.Mesh(new THREE.PlaneGeometry(16, 9),
+  new THREE.MeshBasicMaterial({ map: radialTex('rgba(168,85,247,0.55)', 'rgba(0,0,0,0)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+spill.rotation.x = -Math.PI / 2; spill.position.set(0, 0.02, 0.6);
+stageGroup.add(spill);
+
+const beamMat = (col) => new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  uniforms: { uCol: { value: new THREE.Color(col) }, uI: { value: 0.5 } },
+  vertexShader: `varying float vT; varying vec3 vN; varying vec3 vV;
+    void main(){ vT = uv.y; vec4 w = modelMatrix * vec4(position,1.0);
+      vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz);
+      gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `uniform vec3 uCol; uniform float uI; varying float vT; varying vec3 vN; varying vec3 vV;
+    void main(){ float edge = pow(abs(dot(vN, vV)), 1.6);
+      float a = edge * smoothstep(0.0, 0.25, vT) * (0.25 + 0.75 * vT) * uI;
+      gl_FragColor = vec4(uCol * a, 1.0); }`
+});
+const beams = [];
+function addBeam(x, z, col, aimX) {
+  const len = 13, top = new THREE.Vector3(x, 12.5, z), aim = new THREE.Vector3(aimX, STAGE.h, STAGE.zOff);
+  const g = new THREE.CylinderGeometry(0.12, 2.0, len, 32, 1, true);
+  g.translate(0, -len / 2, 0);
+  const m = new THREE.Mesh(g, beamMat(col));
+  m.position.copy(top);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), aim.clone().sub(top).normalize());
+  m.scale.y = aim.distanceTo(top) / len * 1.05;
+  stageGroup.add(m);
+  beams.push(m);
+}
+addBeam(-5.5, -4.0, 0xa855f7, -1.2);
+addBeam( 5.5, -4.0, 0x38bdf8,  1.2);
+addBeam( 0.0, -5.0, 0xfde68a,  0.0);
+
+const backGlow = new THREE.Mesh(new THREE.PlaneGeometry(12, 9),
+  new THREE.MeshBasicMaterial({ map: radialTex('rgba(236,72,153,0.5)', 'rgba(0,0,0,0)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+backGlow.position.set(0, 4.2, -4.6);
+stageGroup.add(backGlow);
+
+const stageFx = { flash: 0 };
+function stageHit(strength = 1) { stageFx.flash = Math.max(stageFx.flash, strength); }
+
+// ===== 4. Model Library & Universal Loader =====
+let modelList = [];
+let live2dModel = null;
+let loadingModel = false;
+let pendingModelId = null;
+
+// Dynamic per-model performance motion clip cache: clips[relPath] = { dur, curves }
+const clipCache = new Map();
+async function loadMotionClip(modelId, relPath) {
+  if (!relPath) return null;
+  const key = `${modelId}/${relPath}`;
+  if (clipCache.has(key)) return clipCache.get(key);
+  const url = `${MODEL_FILE_PREFIX}${encodeURIComponent(modelId)}/${relPath.split('/').map(encodeURIComponent).join('/')}`;
+  const d = await (await fetch(url)).json();
+  const curves = (d.Curves || []).filter(c => c.Target === 'Parameter').map(c => {
+    const s = c.Segments, segs = [];
+    let t = s[0], v = s[1], i = 2;
+    while (i < s.length) {
+      const k = s[i];
+      if (k === 0) { segs.push([0, t, s[i + 1], v, s[i + 2]]); t = s[i + 1]; v = s[i + 2]; i += 3; }
+      else if (k === 1) { segs.push([1, t, s[i + 5], v, s[i + 2], s[i + 4], s[i + 6]]); t = s[i + 5]; v = s[i + 6]; i += 7; }
+      else if (k === 2) { segs.push([2, t, s[i + 1], v]); t = s[i + 1]; v = s[i + 2]; i += 3; }
+      else { segs.push([3, t, s[i + 1], s[i + 2]]); t = s[i + 1]; v = s[i + 2]; i += 3; }
+    }
+    return { id: c.Id, first: s[1], segs };
+  });
+  const clip = { dur: d.Meta?.Duration || 10.65, curves };
+  clipCache.set(key, clip);
+  return clip;
+}
+
+function sampleCurve(c, t) {
+  const g = c.segs;
+  if (!g.length || t <= g[0][1]) return c.first;
+  let lo = 0, hi = g.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (g[m][2] < t) lo = m + 1; else hi = m; }
+  const s = g[lo];
+  if (t >= s[2] && lo === g.length - 1) return s[0] === 0 ? s[4] : s[0] === 1 ? s[6] : s[3];
+  const f = (t - s[1]) / Math.max(1e-6, s[2] - s[1]);
+  if (s[0] === 0) return s[3] + (s[4] - s[3]) * f;
+  if (s[0] === 1) { const u = 1 - f; return u * u * u * s[3] + 3 * u * u * f * s[4] + 3 * u * f * f * s[5] + f * f * f * s[6]; }
+  return s[3];
+}
+
+let activePerfClips = { calm: [], drive: [], fill: [], action: [], finish: null, idle: null };
+
+async function preloadPerformanceClips(meta) {
+  const empty = { calm: [], drive: [], fill: [], action: [], finish: null, idle: null };
+  if (!meta || meta.role !== 'performance' || !meta.motions) { activePerfClips = empty; return; }
+  const loadList = async (arr) => (await Promise.all((arr || []).map(p => loadMotionClip(meta.id, p).catch(() => null)))).filter(Boolean);
+  const [calm, drive, fill, action, finish, idle] = await Promise.all([
+    loadList(meta.motions.calm),
+    loadList(meta.motions.drive),
+    loadList(meta.motions.fill),
+    loadList(meta.motions.action),
+    meta.motions.finish ? loadMotionClip(meta.id, meta.motions.finish).catch(() => null) : null,
+    meta.motions.idle ? loadMotionClip(meta.id, meta.motions.idle).catch(() => null) : null
+  ]);
+  activePerfClips = { calm, drive: drive.length ? drive : calm, fill: fill.length ? fill : (drive.length ? drive : calm), action, finish, idle };
+}
+
+function startIdleLiveLoop(m, meta) {
+  const mm = m.internalModel?.motionManager;
+  const motionDefs = m.internalModel?.settings?.motions || {};
+  const groups = Object.keys(motionDefs).filter(k => /play0[12]|action/i.test(k));
+  if (!mm || !groups.length) return;
+  const next = () => {
+    if (live2dModel !== m) return;
+    if (music.performing) { setTimeout(next, 500); return; }
+    const g = groups[Math.floor(Math.random() * groups.length)];
+    try { m.motion(g, undefined, 2); } catch {}
+  };
+  mm.on('motionStart', () => { stageHit(1); triggerRipple(); });
+  mm.on('motionFinish', () => setTimeout(next, 140));
+  setTimeout(next, 600);
+}
+
+async function loadModelById(modelId) {
+  const meta = modelList.find(x => x.id === modelId);
+  if (!meta) return;
+  if (loadingModel) { pendingModelId = modelId; return; }
+  loadingModel = true;
+  state.modelId = modelId;
+  curModelMeta = meta;
+  document.querySelectorAll('[data-model-id]').forEach(b => b.classList.toggle('active', b.dataset.modelId === modelId));
+  setStatus(`加载模型：${meta.name}...`, 'warn');
+  try {
+    if (live2dModel) {
+      pixiApp.stage.removeChild(live2dModel);
+      live2dModel.destroy({ children: true, texture: true, baseTexture: true });
+      live2dModel = null;
+    }
+    const modelUrl = `${MODEL_FILE_PREFIX}${encodeURIComponent(meta.id)}/${meta.modelFile.split('/').map(encodeURIComponent).join('/')}`;
+    const m = await PIXI.live2d.Live2DModel.from(modelUrl, { autoInteract: false, motionPreload: 'NONE' });
+    const ow = m.internalModel.originalWidth || 2000;
+    const oh = m.internalModel.originalHeight || 2000;
+    const isPerf = meta.role === 'performance';
+    const isDrum = isPerf && hasDrumKitParts(m);
+
+    // Build view geometry dynamically from model type & actual opaque bounding box
+    let view;
+    if (isDrum) {
+      view = { texW: 1024, texH: 704, planeH: 5.36, headroom: 0.30, stage: true, ...DRUM_LAYER_SPEC };
+      applyView(view);
+      const scale = Math.min(view.texW / (ow * 2.0), view.texH / (oh * 0.95));
+      m.scale.set(scale);
+      m.position.set(view.texW / 2 - ow * 0.5 * scale, view.texH - oh * 1.03 * scale);
+      pixiApp.stage.addChild(m);
+      try { m.update(0); fitToContent(m, view); } catch {}
+    } else if (isPerf) {
+      // Probe opaque aspect ratio on a square canvas first so standing vs wide instruments frame cleanly!
+      const probe = { texW: 1024, texH: 1024, planeH: 5.6, headroom: 0.16, stage: true, layers: null };
+      applyView(probe);
+      const initScale = Math.min(probe.texW * 0.65 / ow, probe.texH * 0.78 / oh);
+      m.scale.set(initScale);
+      m.position.set((probe.texW - ow * initScale) * 0.5, (probe.texH - oh * initScale) * 0.5);
+      pixiApp.stage.addChild(m);
+      let aspect = 0.7;
+      try {
+        m.update(0);
+        const b = measureOpaqueBounds(probe.texW, probe.texH);
+        if (b) aspect = (b.bx1 - b.bx0) / Math.max(1, b.by1 - b.by0);
+      } catch {}
+      // Wide seated instrument vs Standing performer (e.g. guitar/bass/vocal/keyboard)
+      view = aspect > 1.15
+        ? { texW: 1024, texH: 768,  planeH: 5.36, headroom: 0.22, stage: true, layers: null, centerOnFeet: false }
+        : { texW: 1120, texH: 1280, planeH: 5.95, headroom: 0.11, stage: true, layers: null, centerOnFeet: true };
+      applyView(view);
+      const s2 = Math.min(view.texW * 0.65 / ow, view.texH * 0.78 / oh);
+      m.scale.set(s2);
+      m.position.set((view.texW - ow * s2) * 0.5, (view.texH - oh * s2) * 0.5);
+      try { m.update(0); fitToContent(m, view); } catch {}
+    } else {
+      view = { ...VIEW_STAND, centerOnFeet: true };
+      applyView(view);
+      const scale = Math.min((PIXI_W * 0.94) / (ow * 0.44), (PIXI_H * 0.94) / oh);
+      m.scale.set(scale);
+      m.position.set((PIXI_W - ow * scale) * 0.5, PIXI_H - oh * scale * 0.99);
+      pixiApp.stage.addChild(m);
+      try { m.update(0); fitToContent(m, view); } catch {}
+    }
+
+    if (view.layers) {
+      installLayering(m, view);
+      buildLayerMeshes(view.layers.length);
+      pixiApp.stop();
+      pixiApp.renderer.resize(view.texW, view.texH * view.layers.length);
+      live2dTex.dispose();
+    } else {
+      pixiApp.start();
+    }
+
+    // Tighten stage contact shadow for solo standing performers vs wide drum kit
+    shadow.scale.set(view.centerOnFeet ? 0.36 : 1.0, view.centerOnFeet ? 0.55 : 1.0, 1);
+
+    layerGroup.visible = !!view.layers;
+    charPlane.visible = !view.layers;
+    stageGroup.visible = !!view.stage;
+    live2dModel = m;
+    installLiveHook(m);
+
+    if (isPerf) {
+      await preloadPerformanceClips(meta);
+      startIdleLiveLoop(m, meta);
+    } else {
+      activePerfClips = { calm: [], drive: [], fill: [], action: [], finish: null, idle: null };
+    }
+    music.wasDriving = false;
+    music.clip = null;
+    music.flourish = null;
+    music.lastPose.clear();
+    triggerRipple();
+    setStatus(state.camRunning ? '眼追运行中' : '就绪', 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('模型加载失败: ' + (err?.message || err), 'warn');
+  } finally {
+    loadingModel = false;
+    if (pendingModelId) {
+      const next = pendingModelId; pendingModelId = null;
+      if (next !== state.modelId) loadModelById(next);
+    }
+  }
+}
+
+function renderDockModels() {
+  dockModels.innerHTML = '';
+  emptyGuide.classList.toggle('show', modelList.length === 0);
+  for (const m of modelList) {
+    const btn = document.createElement('button');
+    btn.className = 'ctrl' + (m.id === state.modelId ? ' active' : '');
+    btn.dataset.modelId = m.id;
+    btn.textContent = (m.role === 'performance' ? '♪ ' : '') + m.name;
+    btn.onclick = () => {
+      music.userPickedAt = Date.now();
+      loadModelById(m.id);
+    };
+    dockModels.appendChild(btn);
+  }
+}
+
+async function refreshModelList() {
+  try {
+    const r = await fetch(MODEL_MANIFEST_URL, { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    modelList = Array.isArray(data.models) ? data.models : [];
+    renderDockModels();
+    if (!modelList.length) return;
+    if (!state.modelId || !modelList.some(m => m.id === state.modelId)) {
+      const pick = modelList.find(m => m.isDefault) || modelList[0];
+      loadModelById(pick.id);
+    }
+  } catch (e) {
+    console.warn('refreshModelList failed', e);
+  }
+}
+window.onModelsUpdated = () => refreshModelList();
+
+function findPerformanceModel() {
+  return modelList.find(m => m.role === 'performance' && m.isDefaultPerformance)
+      || modelList.find(m => m.role === 'performance')
+      || null;
+}
+
+// ===== 5. Robert Kooima Off-Axis Perspective + Curved Fold Band Renderer =====
+const _vr = new THREE.Vector3(), _vu = new THREE.Vector3(), _vn = new THREE.Vector3();
+const _va = new THREE.Vector3(), _vb = new THREE.Vector3(), _vc = new THREE.Vector3();
+const _rot = new THREE.Matrix4();
+
+function applyOffAxisCamera(camera, pa, pb, pc, pe) {
+  _vr.subVectors(pb, pa).normalize();
+  _vu.subVectors(pc, pa).normalize();
+  _vn.crossVectors(_vr, _vu).normalize();
+  _va.subVectors(pa, pe); _vb.subVectors(pb, pe); _vc.subVectors(pc, pe);
+  let d = -_va.dot(_vn);
+  if (d < 1.5) d = 1.5;
+  const n = 0.5, f = 240.0, s = n / d;
+  camera.projectionMatrix.makePerspective(_vr.dot(_va) * s, _vr.dot(_vb) * s, _vu.dot(_vc) * s, _vu.dot(_va) * s, n, f);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+  _rot.makeBasis(_vr, _vu, _vn);
+  camera.position.copy(pe);
+  camera.quaternion.setFromRotationMatrix(_rot);
+  camera.updateMatrixWorld(true);
+}
+
+const bandA = new THREE.Vector3(), bandB = new THREE.Vector3(), bandC = new THREE.Vector3();
+const _sf = { y: 0, z: 0 };
+function surf(sCm, r, alpha, theta) {
+  const L = r * alpha, d = r * Math.tan(alpha / 2);
+  if (sCm <= -L / 2) { _sf.y = 0; _sf.z = d + (-L / 2 - sCm); }
+  else if (sCm >= L / 2) { const t = d + (sCm - L / 2); _sf.y = t * Math.sin(theta); _sf.z = t * Math.cos(theta); }
+  else { const phi = (sCm + L / 2) / r; _sf.y = r - r * Math.cos(phi); _sf.z = d - r * Math.sin(phi); }
+  return _sf;
+}
+
+function renderBands(E) {
+  const pr = renderer.getPixelRatio();
+  const hPx = Math.round(window.innerHeight * pr);
+  const wCss = window.innerWidth;
+  const mid = hPx / 2;
+  const ppc = mid / state.halfCm;
+  const halfW = state.longCm / 2;
+  const theta = state.angleDeg * Math.PI / 180;
+  const alpha = Math.max(0, Math.PI - theta);
+  const r = state.bendR;
+  const L = r * alpha;
+  const n = L > 0.02 ? Math.max(2, Math.min(8, Math.ceil(L / 0.09))) : 0;
+  const edges = [0];
+  if (n) { for (let i = 0; i <= n; i++) edges.push(Math.round(mid + (-L / 2 + L * i / n) * ppc)); }
+  else edges.push(Math.round(mid));
+  edges.push(hPx);
+  for (let k = 0; k < edges.length - 1; k++) {
+    const y0 = edges[k], y1 = edges[k + 1];
+    if (y1 <= y0) continue;
+    let p = surf((y0 - mid) / ppc, r, alpha, theta);
+    bandA.set(-halfW, p.y, p.z); bandB.set(+halfW, p.y, p.z);
+    p = surf((y1 - mid) / ppc, r, alpha, theta);
+    bandC.set(-halfW, p.y, p.z);
+    applyOffAxisCamera(camBand, bandA, bandB, bandC, E);
+    renderer.setViewport(0, y0 / pr, wCss, (y1 - y0) / pr);
+    renderer.setScissor(0, y0 / pr, wCss, (y1 - y0) / pr);
+    renderer.render(scene, camBand);
+  }
+}
+
+// ===== 6. Offline Front-Camera Eye Tracking (Worker + One-Euro Filter) =====
+const DEFAULT_ELEV = 38 * Math.PI / 180;
+class OneEuro {
+  constructor(minCut, beta) { this.minCut = minCut; this.beta = beta; this.x = null; this.dx = 0; this.t = 0; }
+  static alpha(cut, dt) { const tau = 1 / (2 * Math.PI * cut); return 1 / (1 + tau / dt); }
+  filter(x, t) {
+    if (this.x == null) { this.x = x; this.t = t; return x; }
+    const dt = Math.max(1e-3, t - this.t); this.t = t;
+    const dx = (x - this.x) / dt;
+    this.dx += (dx - this.dx) * OneEuro.alpha(1.0, dt);
+    this.x += (x - this.x) * OneEuro.alpha(this.minCut + this.beta * Math.abs(this.dx), dt);
+    return this.x;
+  }
+}
+const eyeFilt = [new OneEuro(0.9, 0.22), new OneEuro(0.9, 0.22), new OneEuro(0.9, 0.22)];
+let rangeSmooth = null, lastRangeT = 0, faceLandmarker = null, lastDetectMs = 0, activeStream = null, camLabel = '';
+let detCount = 0, detFps = 0, detFpsT = 0;
+const probeCanvas = document.createElement('canvas');
+const probeCtx = probeCanvas.getContext('2d', { willReadFrequently: false });
+const previewCanvas = document.getElementById('cam-preview');
+const previewCtx = previewCanvas.getContext('2d');
+const ROT_CANDIDATES = [0, 270, 90, 180];
+const rotProbe = { idx: 0, frames: 0, good: 0, bad: 0 };
+const lastFace = { u: 0, v: 0, ipdPx: 0, W: 1, H: 1, ok: false };
+
+function stopCameraStream() {
+  if (activeStream) { for (const tr of activeStream.getTracks()) { try { tr.stop(); } catch {} } activeStream = null; }
+  videoEl.srcObject = null; state.camRunning = false;
+}
+window.addEventListener('pagehide', stopCameraStream);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopCameraStream();
+  else if (state.mode === 'camera' && !state.camRunning) startCameraTracking();
+});
+
+async function openStream() {
+  const base = { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } };
+  const id = localStorage.getItem('foldstage.camId');
+  if (id) { try { return await navigator.mediaDevices.getUserMedia({ video: { ...base, deviceId: { exact: id } }, audio: false }); } catch {} }
+  try { return await navigator.mediaDevices.getUserMedia({ video: { ...base, facingMode: 'user' }, audio: false }); }
+  catch { return await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false }); }
+}
+
+function resetRotProbe() {
+  state.camRot = null; localStorage.removeItem('foldstage.camRot');
+  rotProbe.idx = 0; rotProbe.frames = 0; rotProbe.good = 0; rotProbe.bad = 0;
+}
+
+const MP_MODULE_URL = new URL('./vendor/mediapipe/vision_bundle.mjs', location.href).href;
+const MP_WASM_URL   = new URL('./vendor/mediapipe/wasm', location.href).href;
+const MP_MODEL_URL  = new URL('./vendor/mediapipe/face_landmarker.task', location.href).href;
+const MP_OPTS = { runningMode: 'VIDEO', numFaces: 1, minFaceDetectionConfidence: 0.35, minFacePresenceConfidence: 0.35, minTrackingConfidence: 0.35 };
+const WORKER_SRC = `
+let lm = null, cv = null, cx = null;
+self.onmessage = async (e) => {
+  const m = e.data;
+  if (m.type === 'init') {
+    try {
+      const vision = await import(m.modUrl);
+      const fileset = await vision.FilesetResolver.forVisionTasks(m.wasmUrl);
+      lm = await vision.FaceLandmarker.createFromOptions(fileset, Object.assign({ baseOptions: { modelAssetPath: m.modelUrl, delegate: 'GPU' } }, m.opts));
+      cv = new OffscreenCanvas(480, 360); cx = cv.getContext('2d');
+      postMessage({ type: 'ready' });
+    } catch (err) { postMessage({ type: 'error', msg: String(err && err.message || err) }); }
+    return;
+  }
+  if (m.type === 'frame') {
+    let out = null;
+    try {
+      const bw = m.bitmap.width, bh = m.bitmap.height, rot = m.rot;
+      const pw = (rot === 90 || rot === 270) ? bh : bw, ph = (rot === 90 || rot === 270) ? bw : bh;
+      if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+      cx.save(); cx.filter = 'brightness(1.18) contrast(1.15)';
+      cx.translate(pw / 2, ph / 2); cx.rotate(rot * Math.PI / 180);
+      cx.drawImage(m.bitmap, -bw / 2, -bh / 2, bw, bh); cx.restore();
+      const res = lm.detectForVideo(cv, m.t);
+      const l = res && res.faceLandmarks && res.faceLandmarks[0];
+      if (l && l.length >= 300) {
+        const p = (i, j, k) => l[i] ? [l[i].x, l[i].y] : [(l[j].x + l[k].x) * 0.5, (l[j].y + l[k].y) * 0.5];
+        const a = p(468, 33, 133), b = p(473, 362, 263);
+        out = { ax: a[0] * pw, ay: a[1] * ph, bx: b[0] * pw, by: b[1] * ph, mouthY: l[13].y * ph, W: pw, H: ph };
+      }
+    } catch (err) { postMessage({ type: 'error', msg: String(err && err.message || err) }); }
+    m.bitmap.close();
+    postMessage({ type: 'res', rot: m.rot, out });
+  }
+};`;
+
+let detWorker = null, detBusy = false, detMode = 'none', detInit = null;
+function faceFromPoints(o) {
+  const u = (o.ax + o.bx) * 0.5, v = (o.ay + o.by) * 0.5;
+  const ipdPx = Math.hypot(o.bx - o.ax, o.by - o.ay);
+  const upright = Math.abs(o.by - o.ay) < Math.abs(o.bx - o.ax) * 0.8 && (o.mouthY - v) > ipdPx * 0.45;
+  return { u, v, ipdPx, W: o.W, H: o.H, upright };
+}
+
+function initDetector() {
+  if (detInit) return detInit;
+  detInit = (async () => {
+    try {
+      if (typeof OffscreenCanvas === 'undefined' || typeof createImageBitmap === 'undefined') throw new Error('no OffscreenCanvas');
+      const w = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })));
+      await new Promise((ok, fail) => {
+        const timer = setTimeout(() => fail(new Error('worker timeout')), 25000);
+        w.onmessage = (e) => { if (e.data.type === 'ready') { clearTimeout(timer); ok(); } else if (e.data.type === 'error') { clearTimeout(timer); fail(new Error(e.data.msg)); } };
+        w.onerror = (e) => { clearTimeout(timer); fail(new Error(e.message || 'worker error')); };
+        w.postMessage({ type: 'init', modUrl: MP_MODULE_URL, wasmUrl: MP_WASM_URL, modelUrl: MP_MODEL_URL, opts: MP_OPTS });
+      });
+      w.onmessage = (e) => {
+        if (e.data.type === 'res') { detBusy = false; handleDetection(e.data.out ? faceFromPoints(e.data.out) : null, e.data.rot, performance.now()); }
+        else if (e.data.type === 'error') { state.lastError = 'worker: ' + e.data.msg; }
+      };
+      detWorker = w; detMode = 'worker';
+    } catch (err) {
+      console.warn('Worker detector unavailable, using main thread:', err);
+      const vision = await import(MP_MODULE_URL);
+      const fileset = await vision.FilesetResolver.forVisionTasks(MP_WASM_URL);
+      faceLandmarker = await vision.FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: MP_MODEL_URL, delegate: 'GPU' }, ...MP_OPTS });
+      detMode = 'main';
+    }
+  })();
+  return detInit;
+}
+
+async function startCameraTracking() {
+  setStatus('启动前摄眼追...', 'warn');
+  stopCameraStream();
+  try {
+    const stream = await openStream();
+    activeStream = stream; camLabel = stream.getVideoTracks()[0]?.label || '';
+    videoEl.srcObject = stream; await videoEl.play();
+    state.camRunning = true;
+    await initDetector();
+    state.mode = 'camera'; state.missCount = 0; syncModeButtons();
+    setStatus(state.camRot == null ? '判断镜头方向...' : '等待人脸...', 'warn');
+  } catch (err) {
+    state.lastError = String(err?.message || err);
+    setStatus('前摄受限，切触控预览', 'warn');
+    state.mode = 'touch'; syncModeButtons();
+  }
+}
+
+async function cycleCamera() {
+  try {
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    if (!cams.length) return;
+    const cur = activeStream?.getVideoTracks()[0]?.getSettings()?.deviceId;
+    const i = cams.findIndex(d => d.deviceId === cur);
+    const next = cams[(i + 1) % cams.length];
+    localStorage.setItem('foldstage.camId', next.deviceId);
+    resetRotProbe(); await startCameraTracking();
+  } catch {}
+}
+
+function drawRotatedForDetect(rotDeg) {
+  const vw = videoEl.videoWidth || 640, vh = videoEl.videoHeight || 480;
+  const scale = Math.min(1, 480 / Math.max(vw, vh));
+  const dw = Math.round(vw * scale), dh = Math.round(vh * scale);
+  const pw = (rotDeg === 90 || rotDeg === 270) ? dh : dw, ph = (rotDeg === 90 || rotDeg === 270) ? dw : dh;
+  if (probeCanvas.width !== pw || probeCanvas.height !== ph) { probeCanvas.width = pw; probeCanvas.height = ph; }
+  probeCtx.save(); probeCtx.filter = 'brightness(1.18) contrast(1.15)';
+  probeCtx.translate(pw / 2, ph / 2); probeCtx.rotate(rotDeg * Math.PI / 180);
+  probeCtx.drawImage(videoEl, -dw / 2, -dh / 2, dw, dh); probeCtx.restore();
+  return probeCanvas;
+}
+
+function updateEyeFromCamera() {
+  if (detMode === 'none' || !state.camRunning || videoEl.readyState < 2) return;
+  const now = performance.now();
+  const rot = state.camRot == null ? ROT_CANDIDATES[rotProbe.idx] : state.camRot;
+  if (detMode === 'worker') {
+    if (detBusy || now - lastDetectMs < 66) return;
+    lastDetectMs = now; detBusy = true;
+    const vw = videoEl.videoWidth || 640, vh = videoEl.videoHeight || 480;
+    const k = Math.min(1, 480 / Math.max(vw, vh));
+    createImageBitmap(videoEl, { resizeWidth: Math.round(vw * k), resizeHeight: Math.round(vh * k) })
+      .then(bmp => detWorker.postMessage({ type: 'frame', bitmap: bmp, rot, t: now }, [bmp]))
+      .catch(() => { detBusy = false; });
+    return;
+  }
+  if (now - lastDetectMs < 40) return;
+  lastDetectMs = now;
+  const src = drawRotatedForDetect(rot);
+  const res = faceLandmarker.detectForVideo(src, now);
+  const lm = res?.faceLandmarks?.[0];
+  let out = null;
+  if (lm && lm.length >= 300) {
+    const W = src.width, H = src.height;
+    const pt = (i, j, k) => lm[i] ? [lm[i].x, lm[i].y] : [(lm[j].x + lm[k].x) * 0.5, (lm[j].y + lm[k].y) * 0.5];
+    const A = pt(468, 33, 133), B = pt(473, 362, 263);
+    out = faceFromPoints({ ax: A[0] * W, ay: A[1] * H, bx: B[0] * W, by: B[1] * H, mouthY: lm[13].y * H, W, H });
+  }
+  handleDetection(out, rot, now);
+}
+
+function handleDetection(r, rot, now) {
+  detCount++;
+  if (now - detFpsT > 1000) { detFps = detCount * 1000 / (now - detFpsT); detCount = 0; detFpsT = now; }
+  if (state.camRot == null) {
+    if (rot !== ROT_CANDIDATES[rotProbe.idx]) return;
+    rotProbe.frames++;
+    if (r && r.upright) rotProbe.good++;
+    if (rotProbe.good >= 4) {
+      state.camRot = rot; localStorage.setItem('foldstage.camRot', String(rot)); rotProbe.bad = 0;
+      setStatus(`镜头方向 ${rot}°`, 'ok');
+    } else if (rotProbe.frames >= 10) {
+      rotProbe.idx = (rotProbe.idx + 1) % ROT_CANDIDATES.length; rotProbe.frames = 0; rotProbe.good = 0;
+    }
+    return;
+  }
+  if (rot !== state.camRot) return;
+  if (!r) {
+    lastFace.ok = false;
+    if (++state.missCount > 30 && state.faceDetected) { state.faceDetected = false; setStatus('等待人脸', 'warn'); }
+    return;
+  }
+  if (!r.upright) {
+    lastFace.ok = false;
+    if (++rotProbe.bad > 60) { resetRotProbe(); setStatus('重测镜头方向...', 'warn'); }
+    return;
+  }
+  rotProbe.bad = 0; state.missCount = 0;
+  Object.assign(lastFace, r, { ok: true });
+  if (!state.faceDetected) { state.faceDetected = true; setStatus('眼追已锁定', 'ok'); }
+
+  const f = state.focalPerLong * Math.max(r.W, r.H);
+  const zRaw = Math.max(20, Math.min(90, f * HUMAN_IPD_CM / Math.max(8, r.ipdPx)));
+  const tSec = now / 1000;
+  if (rangeSmooth == null) rangeSmooth = zRaw;
+  else rangeSmooth += (zRaw - rangeSmooth) * (1 - Math.exp(-(tSec - lastRangeT) / 0.7));
+  lastRangeT = tSec;
+  const Z = rangeSmooth;
+  const a = -(r.u - r.W / 2) / f * (state.flipX ? -1 : 1);
+  const b = -(r.v - r.H / 2) / f;
+  const theta = state.angleDeg * Math.PI / 180, s = Math.sin(theta), c = Math.cos(theta);
+  const ex = state.camX + Z * a + state.trimX;
+  const ey = state.camS * s + Z * (b * s - c) + state.trimY;
+  const ez = state.camS * c + Z * (b * c + s);
+  state.eyeTarget.set(
+    eyeFilt[0].filter(Math.max(-45, Math.min(45, ex)), tSec),
+    eyeFilt[1].filter(Math.max(3, Math.min(80, ey)), tSec),
+    eyeFilt[2].filter(Math.max(-10, Math.min(90, ez)), tSec)
+  );
+}
+
+function drawPreview() {
+  if (!state.showPreview) return;
+  if (detMode === 'worker') drawRotatedForDetect(state.camRot ?? 0);
+  if (!probeCanvas.width) return;
+  const pw = probeCanvas.width, ph = probeCanvas.height, k = 150 / Math.max(pw, ph);
+  const cw = Math.round(pw * k), ch = Math.round(ph * k);
+  if (previewCanvas.width !== cw || previewCanvas.height !== ch) { previewCanvas.width = cw; previewCanvas.height = ch; }
+  previewCtx.drawImage(probeCanvas, 0, 0, cw, ch);
+  if (lastFace.ok) {
+    previewCtx.strokeStyle = '#38bdf8'; previewCtx.lineWidth = 2;
+    previewCtx.beginPath(); previewCtx.arc(lastFace.u * k, lastFace.v * k, lastFace.ipdPx * k * 0.5, 0, 6.2832); previewCtx.stroke();
+  }
+}
+
+// ===== 7. USB Companion SSE + Universal Beat-Synced Performance Engine =====
+const music = {
+  last: null, playing: false, performing: false, prevModelId: null, title: '', artist: '', art: null, artTrack: '',
+  period: 0.6667, beat: 0, synced: false, lastBeatInt: -1, cycle: -1, clip: null,
+  outro: -1, outroT: 0, el: 0, elKey: '', elAt: 0, elTrustAt: 0, trackKey: '', endFired: null, remaining: 0,
+  waitBlended: false, lastPose: new Map(), fromPose: null, fromT: 9, flourish: null, lastFlourish: -99, flourishEnding: false,
+  offsetMs: Number(localStorage.getItem('foldstage.beatOffset') ?? 0),
+  auto: localStorage.getItem('foldstage.autoPerf') !== '0',
+  stopTimer: null, startTimer: null, wasDriving: false, mode: 'idle', idleT: 0, idleAt: 0,
+  localDemo: false, localDemoStart: 0, userPickedAt: 0
+};
+const OUTRO_END = 4.0;
+
+function onMusic(m) {
+  if (!m || typeof m !== 'object') return;
+  music.last = { ...m, recvAt: Date.now() };
+  if (m.art) { music.art = m.art; music.artTrack = `${m.title}\u0001${m.artist}`; updateScreens(true); }
+  if (m.title && (m.title !== music.title || m.artist !== music.artist)) { music.title = m.title; music.artist = m.artist || ''; updateScreens(true); }
+  const playing = m.playing === true;
+  const key = m.title ? `${m.title}\u0001${m.artist}` : '';
+  const newTrack = playing && key && key !== music.trackKey;
+  if (key && playing) music.trackKey = key;
+  if (playing && !music.playing) musicStarted();
+  else if (playing && music.outro >= 0 && key === music.endFired && m.elapsed < 3) { music.endFired = null; resumePlaying(); }
+  else if (newTrack && music.outro >= 0) resumePlaying();
+  if (!playing && music.playing) musicStopped();
+  music.playing = playing;
+}
+
+function resumePlaying() {
+  clearTimeout(music.stopTimer); music.stopTimer = null;
+  if (music.outro >= 0) poseBlendFrom();
+  music.outro = -1; music.good = null; music.synced = false;
+}
+
+function musicStarted() {
+  resumePlaying();
+  music.performing = true;
+  if (!music.auto) return;
+  // Switch to performance model if currently on a standing model
+  if (curModelMeta?.role !== 'performance') {
+    const perf = findPerformanceModel();
+    if (perf) {
+      music.prevModelId = state.modelId;
+      clearTimeout(music.startTimer);
+      music.startTimer = setTimeout(() => { if (music.playing) loadModelById(perf.id); }, 350);
+    }
+  }
+}
+
+function startOutro() {
+  if (!music.performing || music.outro >= 0) return;
+  music.outro = 0; music.outroT = 0; music.waitBlended = false; poseBlendFrom();
+}
+
+function musicStopped() {
+  if (!music.performing) return;
+  startOutro();
+  clearTimeout(music.stopTimer);
+  music.stopTimer = setTimeout(() => {
+    if (music.playing) return;
+    music.performing = false; music.outro = -1;
+    if (music.prevModelId && music.prevModelId !== state.modelId && curModelMeta?.role === 'performance') {
+      loadModelById(music.prevModelId);
+    }
+  }, 60000);
+}
+
+function songEndTick() {
+  const m = music.last, now = performance.now();
+  if (!m || !m.playing || !(m.duration > 30)) return;
+  const reported = m.elapsed + (Date.now() - m.recvAt) / 1000;
+  if (music.elKey !== music.trackKey || Math.abs(reported - music.el) > 2) {
+    music.el = reported; music.elKey = music.trackKey; music.elTrustAt = now + 8000;
+  } else {
+    music.el += (now - (music.elAt || now)) / 1000;
+    music.el += (reported - music.el) * 0.05;
+  }
+  music.elAt = now;
+  music.remaining = m.duration - music.el;
+  if (music.outro >= 0 || music.endFired === music.trackKey || music.el < 10 || now < music.elTrustAt) return;
+  const fading = music.remaining < 12 && (m.energy || 0) < 0.12;
+  if (music.remaining <= 0.92 || fading) { music.endFired = music.trackKey; startOutro(); }
+}
+
+function musicTick(dt) {
+  if (music.localDemo) {
+    const nowMs = Date.now(), periodMs = 60000 / 128;
+    const phase = ((nowMs - music.localDemoStart) % periodMs) / periodMs;
+    onMusic({
+      playing: true, title: 'Local Demo Beat', artist: '128 BPM Built-in', duration: 180,
+      elapsed: ((nowMs - music.localDemoStart) / 1000) % 180, bpm: 128, periodMs,
+      beatRef: music.localDemoStart, downbeatRef: music.localDemoStart, conf: 0.99,
+      energy: 0.45 + 0.45 * Math.exp(-phase * 5), outLatencyMs: 0
+    });
+  }
+  const m = music.last;
+  if (m && music.playing && Date.now() - m.recvAt > 3500) { onMusic({ ...m, art: null, playing: false }); return; }
+  if (!m || !m.playing || !(m.periodMs > 0)) { music.synced = false; return; }
+  if (m.conf > 0.12 || !music.good) music.good = { periodMs: m.periodMs, ref: m.downbeatRef || m.beatRef, lat: m.outLatencyMs || 0 };
+  const g = music.good;
+  let P = g.periodMs / 1000;
+  while (P < 0.4) P *= 2;
+  while (P > 0.95) P /= 2;
+  const heard = (Date.now() + 35 - music.offsetMs) / 1000 - g.lat / 1000;
+  const target = (heard - g.ref / 1000) / P;
+  if (!music.synced) { music.beat = target; music.synced = true; }
+  else {
+    music.beat += dt / P;
+    let err = target - music.beat; err -= Math.round(err);
+    music.beat += Math.max(-0.08, Math.min(0.08, err * Math.min(1, dt * 2.5)));
+  }
+  music.period = P;
+  const cyc = Math.floor(music.beat / 16);
+  if ((cyc !== music.cycle || !music.clip) && music.outro < 0) {
+    music.cycle = cyc;
+    poseBlendFrom();
+    const e = m.energy || 0;
+    const actPool = activePerfClips.action;
+    music.flourish = (actPool.length && cyc - (music.lastFlourish ?? -99) >= 3 && Math.random() < 0.3)
+      ? actPool[Math.floor(Math.random() * actPool.length)]
+      : null;
+    if (music.flourish) music.lastFlourish = cyc;
+    const pool = (e > 0.82 && Math.random() < 0.35 && activePerfClips.fill.length)
+      ? activePerfClips.fill
+      : (e > 0.55 && activePerfClips.drive.length ? activePerfClips.drive : activePerfClips.calm);
+    music.clip = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  }
+  const bi = Math.floor(music.beat);
+  if (bi !== music.lastBeatInt) {
+    music.lastBeatInt = bi;
+    const down = ((bi % 4) + 4) % 4 === 0;
+    stageHit(down ? 1 : 0.4 + 0.3 * (m.energy || 0));
+    if (down) triggerRipple();
+  }
+}
+
+const _mix = new Map();
+function waitLife(t) {
+  const add = (id, v) => _mix.set(id, (_mix.get(id) ?? 0) + v);
+  add('ParamAngleX', 4 * Math.sin(t * 0.9) + 2 * Math.sin(t * 2.3));
+  add('ParamAngleZ', 3 * Math.sin(t * 0.55 + 1));
+  add('ParamAngleY', 5 * Math.sin(t * 0.37));
+  add('ParamBodyAngleX', 3 * Math.sin(t * 0.7 + 0.5));
+  add('ParamBodyAngleZ', 2 * Math.sin(t * 0.45 + 2));
+  _mix.set('ParamBreath', 0.5 + 0.5 * Math.sin(t * 2.0));
+  const bp = t % 4.3;
+  if (bp > 4.05) { const o = bp < 4.17 ? 1 - (bp - 4.05) / 0.12 : (bp - 4.17) / 0.13; _mix.set('ParamEyeLOpen', o); _mix.set('ParamEyeROpen', o); }
+}
+function poseBlendFrom() { if (music.lastPose.size) { music.fromPose = new Map(music.lastPose); music.fromT = 0; } }
+
+function perfParams(core) {
+  const driving = music.performing && curModelMeta?.role === 'performance' && (activePerfClips.calm.length || activePerfClips.idle);
+  if (!driving) return false;
+  _mix.clear();
+  const mode = music.outro >= 0 ? 'outro' : music.synced ? 'play' : 'idle';
+  if (mode !== music.mode) { music.mode = mode; poseBlendFrom(); }
+  if (mode === 'idle') {
+    const idle = activePerfClips.idle || activePerfClips.calm[0];
+    if (!idle) return false;
+    music.idleT = (music.idleT || 0) + Math.max(0, (performance.now() - (music.idleAt || performance.now())) / 1000);
+    music.idleAt = performance.now();
+    for (const c of idle.curves) _mix.set(c.id, sampleCurve(c, music.idleT % Math.max(0.1, idle.dur - 0.02)));
+    waitLife(music.idleT);
+  } else {
+    music.idleAt = 0;
+    if (music.outro >= 0) {
+      const t = music.outroT, fin = activePerfClips.finish, idle = activePerfClips.idle;
+      if ((t > OUTRO_END || !fin) && idle) {
+        if (!music.waitBlended) { music.waitBlended = true; poseBlendFrom(); }
+        for (const c of idle.curves) _mix.set(c.id, sampleCurve(c, Math.max(0, t - OUTRO_END) % Math.max(0.1, idle.dur - 0.02)));
+        waitLife(Math.max(0, t - OUTRO_END));
+      } else if (fin) {
+        const ft = Math.min(fin.dur - 0.02, t);
+        for (const c of fin.curves) _mix.set(c.id, sampleCurve(c, ft));
+      }
+      if (t > 1.9) {
+        const k = Math.min(1, (t - 1.9) / 0.6) * (t > OUTRO_END + 6 ? Math.max(0.35, 1 - (t - OUTRO_END - 6) / 3) : 1), E = state.eyeSmooth;
+        const lookY = Math.max(-25, Math.min(25, Math.atan2(E.x, Math.max(1, E.z - state.charZ)) * 57));
+        const lookX = Math.max(-10, Math.min(20, (Math.atan2(E.y - 3, Math.max(1, Math.hypot(E.x, E.z - state.charZ))) * 57 - 20) * 0.6 + 8));
+        _mix.set('ParamAngleY', (_mix.get('ParamAngleY') ?? 0) * (1 - k) + lookY * k);
+        _mix.set('ParamAngleX', (_mix.get('ParamAngleX') ?? 0) * (1 - k) + lookX * k);
+        _mix.set('ParamEyeBallX', lookY / 30 * k); _mix.set('ParamEyeBallY', 0.3 * k);
+        _mix.set('ParamEyeLSmile', 0.8 * k); _mix.set('ParamEyeRSmile', 0.8 * k); _mix.set('ParamMouthForm', 0.9 * k);
+      }
+    } else {
+      const cb = ((music.beat % 16) + 16) % 16;
+      const fl = music.flourish && cb < 8 ? music.flourish : null;
+      if (fl) {
+        for (const c of fl.curves) _mix.set(c.id, sampleCurve(c, Math.min(fl.dur - 0.01, (cb / 8) * fl.dur)));
+        if (cb > 7.5) music.flourishEnding = true;
+      } else {
+        if (music.flourishEnding) { music.flourishEnding = false; poseBlendFrom(); }
+        const cur = music.clip || activePerfClips.calm[0];
+        if (!cur) return false;
+        const ct = Math.min(cur.dur - 0.02, (cb / 16) * cur.dur);
+        for (const c of cur.curves) _mix.set(c.id, sampleCurve(c, ct));
+      }
+    }
+  }
+  if (music.fromPose && music.fromT < music.period * 0.6) {
+    const k = music.fromT / (music.period * 0.6), e = k * k * (3 - 2 * k);
+    for (const [id, a] of music.fromPose) { const b = _mix.get(id); if (b != null) _mix.set(id, a + (b - a) * e); }
+  }
+  for (const [id, v] of _mix) music.lastPose.set(id, v);
+  for (const [id, v] of _mix) { try { core.setParameterValueById(id, v); } catch {} }
+  return true;
+}
+
+function installLiveHook(m) {
+  m.internalModel.on('beforeModelUpdate', () => {
+    if (live2dModel !== m) return;
+    perfParams(m.internalModel.coreModel);
+  });
+}
+
+// Companion USB SSE loop (127.0.0.1:8772 via adb reverse)
+let usbLinked = false;
+async function companionLoop() {
+  for (;;) {
+    try {
+      const r = await fetch(`${COMPANION_BASE}/v1/events`, { cache: 'no-store' });
+      if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+      usbLinked = true;
+      usbBadge.textContent = 'USB 已连';
+      if (IS_NATIVE) window.NativeFoldStage.syncModels();
+      else refreshModelList();
+
+      const rd = r.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+          for (const line of chunk.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            try {
+              const ev = JSON.parse(line.slice(5).trim());
+              if (ev.type === 'music') onMusic(ev);
+              else if (ev.type === 'models_changed') {
+                if (IS_NATIVE) window.NativeFoldStage.syncModels();
+                else refreshModelList();
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+    usbLinked = false;
+    usbBadge.textContent = '离线模式';
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+
+// ---- Dual Stage Screens (Album Art + Track/BPM/Progress) ----
+function makeScreen(w, h, cw, ch) {
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  return { c, g: c.getContext('2d'), tex, mesh };
+}
+const scrArt = makeScreen(2.6, 2.6, 256, 256), scrInfo = makeScreen(3.6, 2.4, 384, 256);
+scrArt.mesh.position.set(-5.7, 2.75, -3.2); scrArt.mesh.rotation.y = 0.32;
+scrInfo.mesh.position.set(5.7, 2.75, -3.2); scrInfo.mesh.rotation.y = -0.32;
+stageGroup.add(scrArt.mesh, scrInfo.mesh);
+const artImg = new Image(); artImg.onload = () => drawArt();
+let artKey = '';
+function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function screenFrame(g, W, H, col) {
+  g.clearRect(0, 0, W, H);
+  roundRect(g, 4, 4, W - 8, H - 8, 18); g.fillStyle = 'rgba(8,6,16,0.82)'; g.fill();
+  g.lineWidth = 4; g.strokeStyle = col; g.shadowColor = col; g.shadowBlur = 16; g.stroke(); g.shadowBlur = 0;
+}
+function drawArt() {
+  const { g, c } = scrArt, col = '#' + stripMat.color.getHexString();
+  screenFrame(g, c.width, c.height, col);
+  if (artImg.complete && artImg.naturalWidth && music.art) {
+    g.save(); roundRect(g, 18, 18, c.width - 36, c.height - 36, 12); g.clip();
+    g.drawImage(artImg, 18, 18, c.width - 36, c.height - 36); g.restore();
+  } else {
+    g.fillStyle = col; g.font = 'bold 96px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('♪', c.width / 2, c.height / 2);
+  }
+  scrArt.tex.needsUpdate = true;
+}
+function fitText(g, s, maxW, size, weight = 'bold') {
+  let f = size; g.font = `${weight} ${f}px sans-serif`;
+  while (g.measureText(s).width > maxW && f > 14) { f -= 2; g.font = `${weight} ${f}px sans-serif`; }
+  if (g.measureText(s).width > maxW) { while (s.length > 1 && g.measureText(s + '…').width > maxW) s = s.slice(0, -1); s += '…'; }
+  return s;
+}
+function drawInfo() {
+  const { g, c } = scrInfo, W = c.width, H = c.height, col = '#' + stripMat.color.getHexString(), m = music.last;
+  screenFrame(g, W, H, col);
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = col; g.font = 'bold 20px sans-serif';
+  g.fillText(music.outro >= 0 && music.outroT > OUTRO_END ? 'WAITING FOR NEXT' : music.playing ? 'NOW PLAYING' : music.title ? 'PAUSED' : 'FOLDSTAGE LIVE', 24, 44);
+  g.fillStyle = '#ffffff'; g.fillText(fitText(g, music.title || '等待音乐输入', W - 48, 44), 24, 112);
+  g.fillStyle = 'rgba(230,225,255,0.85)'; g.fillText(fitText(g, music.artist || (usbLinked ? 'USB 音源就绪' : '连接电脑端同步节拍'), W - 48, 26, '500'), 24, 154);
+  if (m && m.duration > 0) {
+    const el = Math.min(m.duration, m.playing ? m.elapsed + (Date.now() - m.recvAt) / 1000 : m.elapsed), p = Math.max(0, Math.min(1, el / m.duration));
+    g.fillStyle = 'rgba(255,255,255,0.18)'; roundRect(g, 24, 196, W - 48, 10, 5); g.fill();
+    g.fillStyle = col; roundRect(g, 24, 196, Math.max(10, (W - 48) * p), 10, 5); g.fill();
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    g.fillStyle = 'rgba(230,225,255,0.7)'; g.font = '500 18px sans-serif'; g.fillText(mmss(el), 24, 234);
+    g.textAlign = 'right'; g.fillText(m.bpm > 0 ? `${Math.round(m.bpm)} BPM · ${mmss(m.duration)}` : mmss(m.duration), W - 24, 234);
+  }
+  scrInfo.tex.needsUpdate = true;
+}
+function updateScreens(force) {
+  const key = music.artTrack + (music.art ? music.art.length : 0);
+  if (music.art && key !== artKey) { artKey = key; artImg.src = 'data:image/jpeg;base64,' + music.art; }
+  if (force) drawArt();
+  drawInfo();
+}
+let screensAt = 0;
+updateScreens(true);
+
+// ===== 8. Optional Rear-Camera AR Transparent Window =====
+const AR_FOV = { tx: Math.tan(74.1 / 2 * Math.PI / 180), ty: Math.tan(59.1 / 2 * Math.PI / 180) };
+const ar = {
+  on: localStorage.getItem('foldstage.ar') === '1',
+  D: Number(localStorage.getItem('foldstage.arD') ?? 60),
+  camX: Number(localStorage.getItem('foldstage.arCamX') ?? -4.5),
+  camS: Number(localStorage.getItem('foldstage.arCamS') ?? 4.5),
+  rot: Number(localStorage.getItem('foldstage.arRot') ?? 0),
+  mirror: localStorage.getItem('foldstage.arMirror') === '1',
+  ev: Number(localStorage.getItem('foldstage.arEv') ?? 0),
+  lock: false, lastSent: '', lastAt: 0, deskAt: 0
+};
+const arSave = () => {
+  localStorage.setItem('foldstage.ar', ar.on ? '1' : '0'); localStorage.setItem('foldstage.arD', ar.D);
+  localStorage.setItem('foldstage.arCamX', ar.camX); localStorage.setItem('foldstage.arCamS', ar.camS);
+  localStorage.setItem('foldstage.arRot', ar.rot); localStorage.setItem('foldstage.arMirror', ar.mirror ? '1' : '0');
+  localStorage.setItem('foldstage.arEv', ar.ev);
+};
+window.onArTooHot = (st) => { ar.on = false; arSave(); arApply(); setStatus(`机身温度过高 (${st})，AR 已自动关闭`, 'warn'); };
+
+function arApply() {
+  let hot = 0; try { hot = window.NativeFoldStage?.thermal?.() || 0; } catch {}
+  if (ar.on && hot >= 4) { ar.on = false; arSave(); setStatus(`机身温度偏高 (${hot})，暂不开 AR`, 'warn'); }
+  const on = ar.on && !!window.NativeFoldStage?.arStart;
+  document.documentElement.classList.toggle('ar', on); document.body.classList.toggle('ar', on);
+  if (on) { scene.background = null; renderer.setClearColor(0x000000, 0); window.NativeFoldStage.arStart(); setTimeout(() => sampleDesk(), 2500); }
+  else { try { window.NativeFoldStage?.arStop(); } catch {} applyTheme(state.theme); }
+  backDotWall.visible = !on;
+  beams.forEach(b => b.visible = !on); backGlow.visible = !on;
+  floorUniforms.uAR.value = on ? 1 : 0;
+  document.getElementById('btn-ar').classList.toggle('active', ar.on);
+}
+
+function arQuad(E) {
+  const th = state.angleDeg * Math.PI / 180, s = Math.sin(th), c = Math.cos(th);
+  const D = ar.D, W = window.innerWidth, H = window.innerHeight;
+  const cx = ar.camX, cy = ar.camS * s, cz = ar.camS * c;
+  const rx = 1, ry = 0, rz = 0, ux = 0, uy = s, uz = c, nx = 0, ny = -c, nz = s;
+  const hx = D * AR_FOV.tx, hy = D * AR_FOV.ty;
+  const dx = -D * nx, dy = -D * ny, dz = -D * nz;
+  const raw = [[-1, 1], [1, 1], [1, -1], [-1, -1]].map(([sx, sy]) => {
+    const px = cx + dx + sx * hx * rx + sy * hy * ux;
+    const py = cy + dy + sx * hx * ry + sy * hy * uy;
+    const pz = cz + dz + sx * hx * rz + sy * hy * uz;
+    const vx = px - E.x, vy = py - E.y, vz = pz - E.z;
+    const den = vx * nx + vy * ny + vz * nz;
+    if (Math.abs(den) < 1e-4) return [W / 2, H / 4];
+    const t = -(E.x * nx + E.y * ny + E.z * nz) / den;
+    const ix = E.x + t * vx, iy = E.y + t * vy, iz = E.z + t * vz;
+    const sCm = iy * s + iz * c;
+    return [(0.5 + ix / state.longCm) * W, (0.5 - sCm / (2 * state.halfCm)) * H];
+  });
+  let q = raw;
+  for (let k = 0; k < ((ar.rot / 90) | 0) % 4; k++) q = [q[3], q[0], q[1], q[2]];
+  if (ar.mirror) q = [q[1], q[0], q[3], q[2]];
+  return q;
+}
+
+function arTick(E) {
+  if (!ar.on || !window.NativeFoldStage?.arSetQuad) return;
+  const now = performance.now();
+  if (now - ar.lastAt < 33) return;
+  ar.lastAt = now;
+  const q = arQuad(E);
+  const msg = q.flat().map(v => v.toFixed(1)).join(',') + ',' + window.innerWidth;
+  if (msg !== ar.lastSent) { ar.lastSent = msg; try { window.NativeFoldStage.arSetQuad(msg); } catch {} }
+  if (now - ar.deskAt > 20000) { ar.deskAt = now; sampleDesk(); }
+}
+
+const deskImg = new Image(), deskCv = document.createElement('canvas'); deskCv.width = deskCv.height = 128;
+const deskCtx = deskCv.getContext('2d', { willReadFrequently: true });
+let deskTex = null, deskGain = Number(localStorage.getItem('foldstage.arDeskGain') ?? 1.0);
+let deskRaw = [0.35, 0.3, 0.26];
+function sampleDesk() {
+  let b64 = ''; try { b64 = window.NativeFoldStage?.arSnapshot?.(320, 240) || ''; } catch {}
+  if (!b64) return;
+  deskImg.onload = () => {
+    const w = deskImg.naturalWidth, h = deskImg.naturalHeight;
+    deskCtx.drawImage(deskImg, 0, Math.round(h * 0.72), w, Math.round(h * 0.28), 0, 0, 128, 128);
+    const d = deskCtx.getImageData(0, 0, 128, 128).data;
+    let r = 0, g = 0, b = 0, n = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+    deskRaw = [r / n / 255, g / n / 255, b / n / 255];
+    floorUniforms.uDesk.value.setRGB(Math.min(1, deskRaw[0] * deskGain), Math.min(1, deskRaw[1] * deskGain), Math.min(1, deskRaw[2] * deskGain));
+    if (!deskTex) { deskTex = new THREE.CanvasTexture(deskCv); deskTex.colorSpace = THREE.SRGBColorSpace; floorUniforms.uDeskTex.value = deskTex; }
+    else deskTex.needsUpdate = true;
+  };
+  deskImg.src = 'data:image/jpeg;base64,' + b64;
+}
+
+// ===== 9. UI Controls, Profiles, Palette & Touch Fallback =====
+function applyPalette(pal) {
+  state.pal = pal;
+  document.querySelectorAll('[data-pal]').forEach(b => b.classList.toggle('active', b.dataset.pal === pal));
+  const cols = makeColorArray(PALETTES[pal] || PALETTES.neon);
+  floorUniforms.uCols.value = cols; backUniforms.uCols.value = cols;
+  beams.forEach((b, i) => b.material.uniforms.uCol.value.copy(cols[[0, 2, 4][i] ?? 0]));
+  triggerRipple();
+}
+
+function applyTheme(theme) {
+  if (ar.on) { state.theme = theme; return; }
+  state.theme = theme;
+  document.querySelectorAll('[data-theme]').forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
+  const isLight = theme === 'light';
+  floorUniforms.uLight.value = isLight ? 1.0 : 0.0; backUniforms.uLight.value = isLight ? 1.0 : 0.0;
+  const bgHex = isLight ? 0xf3f2ef : 0x040406;
+  scene.background = new THREE.Color(bgHex); renderer.setClearColor(bgHex, 1);
+  document.body.style.background = isLight ? '#f3f2ef' : '#040406';
+}
+
+function applyDeviceProfile(key, save = true) {
+  const p = DEVICE_PROFILES[key] || DEVICE_PROFILES['flat-generic'];
+  state.profile = key;
+  state.longCm = p.longCm; state.halfCm = p.halfCm;
+  state.camX = p.camX; state.camS = p.camS; state.focalPerLong = p.focalPerLong;
+  state.angleTarget = p.angleDeg; state.angleDeg = p.angleDeg;
+  state.bendR = p.bendR; state.creaseDim = p.creaseDim; state.topDim = p.topDim;
+  if (save) {
+    localStorage.setItem('foldstage.profile', key);
+    localStorage.setItem('foldstage.longCm', String(p.longCm));
+    localStorage.setItem('foldstage.halfCm', String(p.halfCm));
+    localStorage.setItem('foldstage.bendR', String(p.bendR));
+    localStorage.setItem('foldstage.crease', String(p.creaseDim));
+    localStorage.setItem('foldstage.topDim', String(p.topDim));
+  }
+  try { window.NativeFoldStage?.setFoldSensorMode?.(p.sensorMode); } catch {}
+  document.querySelectorAll('[data-profile]').forEach(b => b.classList.toggle('active', b.dataset.profile === key));
+  syncPanelValues();
+}
+
+function syncModeButtons() {
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
+}
+
+function syncPanelValues() {
+  const setSl = (id, v, txtId, txt) => { document.getElementById(id).value = v; document.getElementById(txtId).textContent = txt; };
+  setSl('sl-angle', state.angleTarget, 'v-angle', state.angleTarget.toFixed(1) + '°');
+  setSl('sl-scrW', state.longCm, 'v-scrW', state.longCm.toFixed(1) + 'cm');
+  setSl('sl-scrH', state.halfCm, 'v-scrH', state.halfCm.toFixed(1) + 'cm');
+  setSl('sl-pitch', state.pitchFollow, 'v-pitch', Math.round(state.pitchFollow * 100) + '%');
+  setSl('sl-yaw', state.yawFollow, 'v-yaw', Math.round(state.yawFollow * 100) + '%');
+  setSl('sl-scale', state.charScale, 'v-scale', state.charScale.toFixed(2) + '×');
+  setSl('sl-z', state.charZ, 'v-z', '+' + state.charZ.toFixed(1) + 'cm');
+  setSl('sl-scr', state.screenBright, 'v-scr', Math.round(state.screenBright * 100) + '%');
+  setSl('sl-topdim', state.topDim, 'v-topdim', state.topDim.toFixed(2) + '×');
+  setSl('sl-crease', state.creaseDim, 'v-crease', state.creaseDim.toFixed(2));
+  setSl('sl-gap', state.bendR, 'v-gap', (state.bendR * 10).toFixed(1) + 'mm');
+  setSl('sl-depth', state.depthSpread, 'v-depth', state.depthSpread.toFixed(2) + '×');
+  setSl('sl-trimx', state.trimX, 'v-trimx', state.trimX.toFixed(1) + 'cm');
+  setSl('sl-trimy', state.trimY, 'v-trimy', state.trimY.toFixed(1) + 'cm');
+  setSl('sl-beatoff', music.offsetMs, 'v-beatoff', music.offsetMs + 'ms');
+  setSl('sl-arD', ar.D, 'v-arD', ar.D + 'cm');
+  setSl('sl-arX', ar.camX, 'v-arX', ar.camX.toFixed(1));
+  setSl('sl-arS', ar.camS, 'v-arS', ar.camS.toFixed(1));
+  setSl('sl-arEv', ar.ev, 'v-arEv', String(ar.ev));
+  setSl('sl-arDesk', deskGain, 'v-arDesk', deskGain.toFixed(2) + '×');
+}
+
+// Native fold angle callback
+const hingeBadge = document.getElementById('hinge-badge');
+window.onNativeHingeAngle = (deg) => {
+  if (typeof deg !== 'number' || !isFinite(deg) || deg < 55 || deg > 180) return;
+  if (state.profile === 'flat-generic') return;
+  state.nativeHinge = true;
+  state.angleTarget = deg;
+  document.getElementById('sl-angle').value = deg;
+  document.getElementById('v-angle').textContent = deg.toFixed(1) + '°';
+  hingeBadge.textContent = `折角 ${deg.toFixed(1)}°`;
+};
+
+// Touch / Mouse Orbit Fallback
+let dragOn = false, dragX = 0, dragY = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  if (state.hudHidden) { state.hudHidden = false; topHud.classList.remove('hidden'); dockBar.classList.remove('hidden'); return; }
+  if (state.mode === 'touch') { dragOn = true; dragX = e.clientX; dragY = e.clientY; }
+});
+window.addEventListener('pointermove', (e) => {
+  if (!dragOn || state.mode !== 'touch') return;
+  const dx = e.clientX - dragX, dy = e.clientY - dragY;
+  dragX = e.clientX; dragY = e.clientY;
+  state.eyeTarget.x = Math.max(-35, Math.min(35, state.eyeTarget.x - dx * 0.12));
+  state.eyeTarget.y = Math.max(8, Math.min(60, state.eyeTarget.y + dy * 0.12));
+});
+window.addEventListener('pointerup', () => { dragOn = false; });
+
+// Button & slider wiring
+document.getElementById('btn-panel').onclick = () => panelEl.classList.toggle('open');
+document.getElementById('btn-hide').onclick = () => { state.hudHidden = true; topHud.classList.add('hidden'); dockBar.classList.add('hidden'); panelEl.classList.remove('open'); };
+document.getElementById('btn-orb').onclick = () => { triggerRipple(); stageHit(1); };
+document.getElementById('btn-retry-sync').onclick = () => { if (IS_NATIVE) window.NativeFoldStage.syncModels(); else refreshModelList(); };
+document.getElementById('btn-sync-now').onclick = () => { if (IS_NATIVE) window.NativeFoldStage.syncModels(); else refreshModelList(); };
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+  if (b.dataset.mode === 'camera') startCameraTracking();
+  else { stopCameraStream(); state.mode = 'touch'; syncModeButtons(); setStatus('触控预览', 'ok'); }
+});
+document.querySelectorAll('[data-profile]').forEach(b => b.onclick = () => applyDeviceProfile(b.dataset.profile, true));
+document.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => applyTheme(b.dataset.theme));
+document.querySelectorAll('[data-pal]').forEach(b => b.onclick = () => applyPalette(b.dataset.pal));
+
+const bindSl = (id, fn) => document.getElementById(id).addEventListener('input', (e) => fn(Number(e.target.value)));
+bindSl('sl-angle', v => { state.angleTarget = v; document.getElementById('v-angle').textContent = v.toFixed(1) + '°'; hingeBadge.textContent = `折角 ${v.toFixed(1)}°`; });
+bindSl('sl-scrW', v => { state.longCm = v; localStorage.setItem('foldstage.longCm', String(v)); document.getElementById('v-scrW').textContent = v.toFixed(1) + 'cm'; });
+bindSl('sl-scrH', v => { state.halfCm = v; localStorage.setItem('foldstage.halfCm', String(v)); document.getElementById('v-scrH').textContent = v.toFixed(1) + 'cm'; });
+bindSl('sl-pitch', v => { state.pitchFollow = v; document.getElementById('v-pitch').textContent = Math.round(v * 100) + '%'; });
+bindSl('sl-yaw', v => { state.yawFollow = v; document.getElementById('v-yaw').textContent = Math.round(v * 100) + '%'; });
+bindSl('sl-scale', v => { state.charScale = v; localStorage.setItem('foldstage.scale', String(v)); document.getElementById('v-scale').textContent = v.toFixed(2) + '×'; });
+bindSl('sl-z', v => { state.charZ = v; localStorage.setItem('foldstage.charZ', String(v)); document.getElementById('v-z').textContent = '+' + v.toFixed(1) + 'cm'; });
+bindSl('sl-scr', v => { state.screenBright = v; document.getElementById('v-scr').textContent = Math.round(v * 100) + '%'; try { window.NativeFoldStage?.setScreenBrightness(v); } catch {} });
+bindSl('sl-topdim', v => { state.topDim = v; localStorage.setItem('foldstage.topDim', String(v)); document.getElementById('v-topdim').textContent = v.toFixed(2) + '×'; });
+bindSl('sl-crease', v => { state.creaseDim = v; localStorage.setItem('foldstage.crease', String(v)); document.getElementById('v-crease').textContent = v.toFixed(2); });
+bindSl('sl-gap', v => { state.bendR = v; localStorage.setItem('foldstage.bendR', String(v)); document.getElementById('v-gap').textContent = (v * 10).toFixed(1) + 'mm'; });
+bindSl('sl-depth', v => { state.depthSpread = v; localStorage.setItem('foldstage.depth', String(v)); document.getElementById('v-depth').textContent = v.toFixed(2) + '×'; });
+bindSl('sl-trimx', v => { state.trimX = v; localStorage.setItem('foldstage.trimX', String(v)); document.getElementById('v-trimx').textContent = v.toFixed(1) + 'cm'; });
+bindSl('sl-trimy', v => { state.trimY = v; localStorage.setItem('foldstage.trimY', String(v)); document.getElementById('v-trimy').textContent = v.toFixed(1) + 'cm'; });
+bindSl('sl-beatoff', v => { music.offsetMs = v; localStorage.setItem('foldstage.beatOffset', String(v)); document.getElementById('v-beatoff').textContent = v + 'ms'; });
+bindSl('sl-arD', v => { ar.D = v; arSave(); document.getElementById('v-arD').textContent = v + 'cm'; });
+bindSl('sl-arX', v => { ar.camX = v; arSave(); document.getElementById('v-arX').textContent = v.toFixed(1); });
+bindSl('sl-arS', v => { ar.camS = v; arSave(); document.getElementById('v-arS').textContent = v.toFixed(1); });
+bindSl('sl-arEv', v => { ar.ev = v; arSave(); document.getElementById('v-arEv').textContent = String(v); try { window.NativeFoldStage?.arLock(ar.lock, ar.ev); } catch {} });
+bindSl('sl-arDesk', v => { deskGain = v; localStorage.setItem('foldstage.arDeskGain', String(v)); document.getElementById('v-arDesk').textContent = v.toFixed(2) + '×'; floorUniforms.uDesk.value.setRGB(Math.min(1, deskRaw[0] * v), Math.min(1, deskRaw[1] * v), Math.min(1, deskRaw[2] * v)); });
+
+document.getElementById('btn-ar').onclick = () => { ar.on = !ar.on; arSave(); arApply(); };
+document.getElementById('btn-ar-rot').onclick = () => { ar.rot = (ar.rot + 90) % 360; arSave(); };
+document.getElementById('btn-ar-mirror').onclick = () => { ar.mirror = !ar.mirror; arSave(); };
+document.getElementById('btn-ar-lock').onclick = (e) => { ar.lock = !ar.lock; e.target.classList.toggle('active', ar.lock); try { window.NativeFoldStage?.arLock(ar.lock, ar.ev); } catch {} };
+document.getElementById('btn-ar-desk').onclick = () => sampleDesk();
+document.getElementById('btn-ar-tex').onclick = (e) => { const on = floorUniforms.uDeskTexOn.value < 0.5; floorUniforms.uDeskTexOn.value = on ? 1 : 0; e.target.classList.toggle('active', on); };
+
+document.getElementById('btn-autoperf').classList.toggle('active', music.auto);
+document.getElementById('btn-autoperf').onclick = (e) => { music.auto = !music.auto; localStorage.setItem('foldstage.autoPerf', music.auto ? '1' : '0'); e.target.classList.toggle('active', music.auto); };
+document.getElementById('btn-local-demo').onclick = (e) => {
+  music.localDemo = !music.localDemo;
+  music.localDemoStart = Date.now();
+  e.target.classList.toggle('active', music.localDemo);
+  if (!music.localDemo) onMusic({ playing: false });
+};
+
+const toggleFlipX = () => {
+  state.flipX = !state.flipX; localStorage.setItem('foldstage.flipX', state.flipX ? '1' : '0');
+  document.getElementById('btn-flipx').classList.toggle('active', state.flipX);
+  document.getElementById('btn-quick-flip').classList.toggle('active', state.flipX);
+};
+document.getElementById('btn-flipx').onclick = toggleFlipX;
+document.getElementById('btn-quick-flip').onclick = toggleFlipX;
+document.getElementById('btn-cam').onclick = cycleCamera;
+document.getElementById('btn-rot').onclick = () => { resetRotProbe(); setStatus('重测镜头方向...', 'warn'); };
+document.getElementById('btn-preview').onclick = (e) => { state.showPreview = !state.showPreview; previewCanvas.classList.toggle('show', state.showPreview); e.target.classList.toggle('active', state.showPreview); };
+
+const foldShade = document.getElementById('fold-shade');
+let shadeKey = '';
+function updateFoldShade(dynTop) {
+  const h = window.innerHeight;
+  if (state.angleDeg >= 176 || (state.creaseDim < 0.01 && dynTop > 0.98)) {
+    if (shadeKey !== 'off') { shadeKey = 'off'; foldShade.style.background = 'none'; }
+    return;
+  }
+  const key = dynTop.toFixed(2) + '|' + state.creaseDim.toFixed(2) + '|' + h + '|' + state.halfCm.toFixed(1);
+  if (key === shadeKey) return;
+  shadeKey = key;
+  const pxPerCm = (h / 2) / state.halfCm, half = 0.55 * pxPerCm, sigma = 0.20 * pxPerCm, topA = 1 - dynTop;
+  const stops = ['rgba(0,0,0,0) 0px', `rgba(0,0,0,0) ${(h / 2 - half).toFixed(1)}px`];
+  for (let i = -8; i <= 8; i++) {
+    const d = (i / 8) * half, k = (i + 8) / 16, ramp = k * k * (3 - 2 * k);
+    const a = Math.min(0.95, topA * ramp + state.creaseDim * Math.exp(-(d * d) / (2 * sigma * sigma)));
+    stops.push(`rgba(0,0,0,${a.toFixed(3)}) ${(h / 2 + d).toFixed(1)}px`);
+  }
+  stops.push(`rgba(0,0,0,${topA.toFixed(3)}) ${h}px`);
+  foldShade.style.background = `linear-gradient(to top, ${stops.join(', ')})`;
+}
+
+async function goFullscreen() {
+  if (IS_NATIVE) return;
+  try {
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+    if (screen.orientation?.lock) { try { await screen.orientation.lock('landscape'); } catch {} }
+  } catch {}
+}
+document.getElementById('btn-fs').onclick = goFullscreen;
+document.getElementById('btn-start-cam').onclick = async () => { startOverlay.classList.add('gone'); await goFullscreen(); await startCameraTracking(); };
+document.getElementById('btn-start-touch').onclick = async () => { startOverlay.classList.add('gone'); await goFullscreen(); state.mode = 'touch'; syncModeButtons(); triggerRipple(); setStatus('触控预览', 'ok'); };
+
+window.addEventListener('resize', () => {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+});
+
+// ===== 10. Main Loop =====
+const clock = new THREE.Clock();
+let nextBlink = 2.4;
+const RAD = 180 / Math.PI;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  if (state.mode === 'camera') { updateEyeFromCamera(); drawPreview(); }
+  state.eyeSmooth.lerp(state.eyeTarget, 1 - Math.exp(-dt / 0.05));
+  if (Math.abs(state.angleTarget - state.angleDeg) > 0.05) state.angleDeg += (state.angleTarget - state.angleDeg) * 0.35;
+  else state.angleDeg = state.angleTarget;
+
+  musicTick(dt);
+  songEndTick();
+  music.fromT += dt;
+  if (music.outro >= 0) {
+    const t0 = music.outroT; music.outroT += dt;
+    if (t0 < 0.77 && music.outroT >= 0.77) { stageHit(1); triggerRipple(); }
+  }
+  const driving = music.performing && curModelMeta?.role === 'performance' && live2dModel;
+  if (driving && !music.wasDriving) { try { live2dModel.internalModel.motionManager.stopAllMotions(); } catch {} }
+  music.wasDriving = !!driving;
+
+  if (curView.stage && t - screensAt > 0.5) { screensAt = t; updateScreens(false); }
+  floorUniforms.uFlow.value = t; backUniforms.uFlow.value = t;
+  const breathPulse = 1.0 + 0.06 * Math.sin(t * 2.1);
+  floorUniforms.uPool.value.set(0.0, state.charZ, 2.35 * breathPulse, 0.92 + 0.14 * Math.sin(t * 2.1));
+  if (state.rippleT < 1.6) {
+    state.rippleT += dt; const p = state.rippleT / 1.6;
+    floorUniforms.uRipple.value.set(0.0, state.charZ, 0.8 + p * 11.5, Math.pow(1.0 - p, 1.8) * 1.1);
+  } else floorUniforms.uRipple.value.w = 0.0;
+
+  const E = state.eyeSmooth;
+  const dxE = E.x, dzE = E.z - state.charZ;
+  const horiz = Math.max(1e-3, Math.hypot(dxE, dzE));
+  const yaw = Math.max(-0.9, Math.min(0.9, Math.atan2(dxE, Math.max(1, dzE)))) * state.yawFollow;
+  const pitch = Math.max(0, Math.min(1.0, Math.atan2(E.y, horiz))) * state.pitchFollow;
+  // IMPORTANT: Both single-layer performance models (e.g. standing guitar/vocal) and 4-layer drum models stand cleanly ON TOP of the stage riser!
+  const baseY = (curView.stage ? STAGE.h : 0) + 0.01;
+  charPlane.position.set(0, baseY, state.charZ);
+  charPlane.scale.set(viewScale.x * state.charScale, viewScale.y * state.charScale, 1);
+  charPlane.rotation.set(-pitch, yaw, 0, 'YXZ');
+
+  if (curView.stage) {
+    stageGroup.position.set(0, 0, state.charZ + STAGE.zOff);
+    stageFx.flash *= Math.exp(-dt / 0.18);
+    const beat = music.synced ? Math.exp(-((((music.beat % 1) + 1) % 1) * 4)) : 0.5 + 0.5 * Math.sin(t * 4 * Math.PI);
+    const I = 0.32 + 0.12 * beat + 0.75 * stageFx.flash;
+    beams.forEach((b, i) => { b.material.uniforms.uI.value = I * (i === 2 ? 0.6 : 1.0); });
+    stripMat.color.copy(floorUniforms.uCols.value[Math.floor(t * 0.8) % 5]).lerp(floorUniforms.uCols.value[(Math.floor(t * 0.8) + 1) % 5], (t * 0.8) % 1);
+    spill.material.color.copy(stripMat.color);
+    spill.material.opacity = 0.55 + 0.45 * stageFx.flash;
+    backGlow.material.opacity = 0.6 + 0.4 * stageFx.flash;
+  }
+
+  if (curView.layers && live2dModel) {
+    const nowMs = performance.now();
+    if (nowMs - lastAtlasMs >= state.atlasMs) { lastAtlasMs = nowMs; renderLayerAtlas(); live2dTex.needsUpdate = true; }
+    const sp = state.depthSpread;
+    layerGroup.children.forEach((mesh, i) => {
+      mesh.position.set(0, baseY, state.charZ + curView.layers[i].z * sp);
+      mesh.scale.copy(charPlane.scale);
+      mesh.rotation.copy(charPlane.rotation);
+    });
+  }
+
+  if (live2dModel) {
+    if (!curView.layers) live2dTex.needsUpdate = true;
+    if (live2dModel.internalModel?.focusController) {
+      const fx = Math.max(-0.7, Math.min(0.7, Math.atan2(dxE, Math.max(1, dzE)) * (1 - state.yawFollow) * 1.6 + E.x / 60));
+      const fy = Math.max(-0.4, Math.min(0.4, (Math.atan2(E.y, horiz) - DEFAULT_ELEV) * 0.6));
+      live2dModel.internalModel.focusController.focus(fx, fy);
+    }
+    const core = live2dModel.internalModel?.coreModel;
+    if (core && !driving) {
+      try {
+        core.setParameterValueById('ParamBreath', (Math.sin(t * 2.1) + 1) * 0.5);
+        if (t > nextBlink) {
+          const bdt = t - nextBlink;
+          const open = bdt < 0.08 ? 1 - bdt / 0.08 : bdt < 0.18 ? (bdt - 0.08) / 0.10 : 1;
+          core.setParameterValueById('ParamEyeLOpen', open);
+          core.setParameterValueById('ParamEyeROpen', open);
+          if (bdt >= 0.18) nextBlink = t + 2.6 + Math.random() * 3.5;
+        }
+      } catch {}
+    }
+  }
+
+  const elevSin = Math.max(0.18, Math.min(0.95, E.y / Math.max(10, E.length())));
+  const dynTop = Math.max(0.28, Math.min(1.0, state.topDim * Math.max(0.75, Math.min(1.18, elevSin / 0.55))));
+  updateFoldShade(dynTop);
+  arTick(E);
+  renderBands(E);
+
+  if (panelEl.classList.contains('open')) {
+    const elev = Math.atan2(E.y, Math.hypot(E.x, E.z)) * RAD;
+    eyeReadout.textContent =
+      `眼位(cm) x=${E.x.toFixed(1)} y=${E.y.toFixed(1)} z=${E.z.toFixed(1)} | 仰角 ${elev.toFixed(0)}° 距离 ${E.length().toFixed(0)}cm\n` +
+      `方向 ${state.camRot == null ? '测中' : state.camRot + '°'} | ${detFps.toFixed(0)}Hz | ${detMode} | ${state.faceDetected ? '有脸' : '无脸'}`;
+  }
+}
+
+window.__foldstage = {
+  state, music, curView: () => curView, models: () => modelList, loadModelById,
+  info: () => ({
+    profile: state.profile, device: DEVICE_INFO, modelId: state.modelId, role: curModelMeta?.role,
+    hasLayers: !!curView.layers, stage: !!curView.stage,
+    eye: state.eyeSmooth.toArray().map(v => +v.toFixed(2)), angle: +state.angleDeg.toFixed(1),
+    detMode, detFps: +detFps.toFixed(1), usbLinked, musicPlaying: music.playing, musicPerforming: music.performing
+  })
+};
+
+applyDeviceProfile(state.profile, false);
+document.getElementById('btn-flipx').classList.toggle('active', state.flipX);
+document.getElementById('btn-quick-flip').classList.toggle('active', state.flipX);
+arApply();
+refreshModelList();
+companionLoop();
+animate();
+if (IS_NATIVE) {
+  startOverlay.classList.add('gone');
+  startCameraTracking();
+  const initDeg = window.NativeFoldStage.getHingeAngle();
+  if (initDeg > 0) window.onNativeHingeAngle(initDeg);
+}
+</script>
+</body>
+</html>

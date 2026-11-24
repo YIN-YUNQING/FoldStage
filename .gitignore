@@ -1,0 +1,29 @@
+# Build outputs & local binaries
+android/out/
+android/src/assets/
+android/keystore/
+desktop/native/macos/build/
+desktop/native/macos/FoldStage Companion.app/
+desktop/native/windows/bin/
+desktop/native/windows/obj/
+desktop/native/windows/publish/
+web/vendor/
+dist/
+
+# User imported Live2D models (never commit copyrighted models)
+models/
+*.moc3
+*.model3.json
+*.motion3.json
+*.exp3.json
+*.physics3.json
+*.apk
+*.keystore
+*.jks
+*.zip
+
+# OS & editor junk
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
