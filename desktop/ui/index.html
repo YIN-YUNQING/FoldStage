@@ -164,8 +164,9 @@
         <span class="tag" id="adb-tag">ADB 检测中</span>
       </div>
       <div class="sub">
-        将手机通过 USB 连接到电脑并允许 USB 调试。
+        将手机通过 USB 连接到电脑并允许 USB 调试，或与电脑连入同一 Wi-Fi 自动局域网连接。
       </div>
+      <div class="sub" id="lan-note" style="font-family:ui-monospace,SFMono-Regular,monospace;color:#93c5fd;"></div>
       <div class="device-box" id="device-box">
         <div class="sub">等待通过 USB 插入 Android 设备...</div>
       </div>
@@ -285,16 +286,19 @@ function renderAdb() {
   }
 
   const ready = adb.devices.some((d) => d.state === 'device');
+  const connected = state.phoneClients > 0;
   $('btn-install').disabled = !ready || !adb.apkAvailable;
   $('btn-install').title = adb.apkAvailable ? adb.apkPath : '请先构建 android/out/foldstage.apk';
   $('btn-launch').disabled = !ready;
-  $('btn-sync').disabled = !ready;
+  $('btn-sync').disabled = !ready && !connected;
 
-  const connected = state.phoneClients > 0;
   $('phone-dot').className = 'dot ' + (connected ? 'ok' : ready ? 'warn' : '');
   $('phone-badge').textContent = connected
     ? `手机端 (${state.phoneClients})`
     : ready ? 'USB 已连 · 等待打开 App' : '手机端未连';
+
+  const lan = (state.lanUrls || [])[0];
+  $('lan-note').textContent = lan ? `局域网地址：${lan}（手机浏览器打开 ${lan}/download/foldstage.apk 可无线装包）` : '';
 }
 
 function renderPhoneSync() {

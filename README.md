@@ -21,8 +21,10 @@
    - **离线模型存储**：通过电脑端同步进手机后，拔掉 USB 线依然可以离线切换和展示模型。
 
 2. **跨平台桌面伴侣（macOS & Windows）**
-   - **统一图形界面 Studio GUI**：无需命令行操作，打开即可管理 USB 设备、选择音源 App、导入 `.zip` 模型并一键同步到手机。
-   - **USB 自动识别（ADB 隧道）**：自动检测通过 USB 连接的 Android 设备并建立 `adb reverse tcp:8772 tcp:8772`，支持一键安装/启动 APK。
+   - **统一图形界面 Studio GUI**：无需命令行操作，打开即可管理设备连接、选择音源 App、导入 `.zip` 模型并一键同步到手机。
+   - **USB + 局域网 Wi-Fi 双通道**：
+     - **USB 优先**：自动检测通过 USB 连接的 Android 设备并建立 `adb reverse tcp:8772 tcp:8772`，支持一键安装/启动 APK。
+     - **局域网 Wi-Fi 无线模式**：桌面端自动在局域网广播 UDP 发现信号（端口 `8773`）并开放 `8772` 无线流接口，手机与电脑在同一 Wi-Fi 下无需插线即可自动发现、同步模型与实时跟歌演出（也可在手机端「调参 -> 局域网」手动填入电脑局域网 IP，或手机浏览器直接打开 `http://<电脑IP>:8772/download/foldstage.apk` 无线装包）。
    - **通用音源 App 指定**：
      - **macOS 14.2+**：原生 Core Audio Process Tap，可指定任意正在运行的 App（网易云、Spotify、Apple Music、QQ 音乐、浏览器等）或「All System Audio」，配合 MediaRemote 读取歌名/歌手/封面/进度。
      - **Windows 10 (20348+) / Windows 11**：原生 WASAPI Process Loopback 按进程捕获指定播放器音频（旧版 Windows 支持 All System Audio 回环），配合 Windows GSMTC 读取歌名/歌手/封面/进度。

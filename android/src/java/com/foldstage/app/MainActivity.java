@@ -53,13 +53,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -74,7 +79,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   - Provides optional Camera2 rear-camera AR transparent window with thermal guard
  */
 public class MainActivity extends Activity implements SensorEventListener {
-    private static final String COMPANION_BASE = "http://127.0.0.1:8772";
+    private static final String USB_COMPANION_BASE = "http://127.0.0.1:8772";
+    private static final int UDP_DISCOVERY_PORT = 8773;
     private static final int REQ_CAM = 101;
     private static final int TYPE_HINGE_ANGLE = 36;
 
@@ -92,6 +98,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     private boolean pageReady = false;
     private PermissionRequest pendingWebPermission = null;
     private final AtomicBoolean syncing = new AtomicBoolean(false);
+    private volatile String discoveredLanUrl = "";
+    private volatile String activeCompanionBase = USB_COMPANION_BASE;
+    private DatagramSocket discoverySocket;
+    private volatile boolean discoveryRunning = false;
 
     // ---- Optional AR transparent window (rear camera behind WebView) ----
     private TextureView arView;
@@ -128,7 +138,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         modelsDir = new File(getFilesDir(), "models");
         if (!modelsDir.exists()) modelsDir.mkdirs();
 
-        localServer = new LocalServer(this, modelsDir, this::syncFromCompanionAsync);
+        localServer = new LocalServer(this, modelsDir, () -> syncFromCompanionAsync(null));
         int localPort = 18772;
         try {
             localPort = localServer.start();
@@ -171,11 +181,42 @@ public class MainActivity extends Activity implements SensorEventListener {
                     j.put("profile", isFold5 ? "fold5" : (hasHingeSensor ? "foldable-generic" : "flat-generic"));
                     j.put("isFold5", isFold5);
                     j.put("hasHingeSensor", hasHingeSensor);
-                    j.put("companionUrl", COMPANION_BASE);
+                    j.put("companionUrl", USB_COMPANION_BASE);
+                    j.put("lanUrl", getSavedLanUrl());
+                    j.put("discoveredLanUrl", discoveredLanUrl);
                     return j.toString();
                 } catch (Exception e) {
-                    return "{\"profile\":\"flat-generic\",\"companionUrl\":\"" + COMPANION_BASE + "\"}";
+                    return "{\"profile\":\"flat-generic\",\"companionUrl\":\"" + USB_COMPANION_BASE + "\"}";
                 }
+            }
+
+            @JavascriptInterface
+            public String getCompanionCandidates() {
+                try {
+                    JSONArray arr = new JSONArray();
+                    arr.put(new JSONObject().put("mode", "usb").put("url", USB_COMPANION_BASE));
+                    if (discoveredLanUrl != null && !discoveredLanUrl.isEmpty()) {
+                        arr.put(new JSONObject().put("mode", "wifi").put("url", discoveredLanUrl));
+                    }
+                    String manual = getSavedLanUrl();
+                    if (!manual.isEmpty() && !manual.equals(discoveredLanUrl)) {
+                        arr.put(new JSONObject().put("mode", "wifi").put("url", manual));
+                    }
+                    return arr.toString();
+                } catch (Exception e) {
+                    return "[{\"mode\":\"usb\",\"url\":\"" + USB_COMPANION_BASE + "\"}]";
+                }
+            }
+
+            @JavascriptInterface
+            public String getLanUrl() {
+                return getSavedLanUrl();
+            }
+
+            @JavascriptInterface
+            public void setLanUrl(String url) {
+                String clean = normalizeBaseUrl(url);
+                getSharedPreferences("foldstage", MODE_PRIVATE).edit().putString("lanUrl", clean).apply();
             }
 
             @JavascriptInterface
@@ -197,7 +238,12 @@ public class MainActivity extends Activity implements SensorEventListener {
 
             @JavascriptInterface
             public void syncModels() {
-                syncFromCompanionAsync();
+                syncFromCompanionAsync(null);
+            }
+
+            @JavascriptInterface
+            public void syncModelsFrom(String baseUrl) {
+                syncFromCompanionAsync(normalizeBaseUrl(baseUrl));
             }
 
             @JavascriptInterface
@@ -288,7 +334,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             public void onPageFinished(WebView view, String url) {
                 pageReady = true;
                 pushHingeToWeb();
-                syncFromCompanionAsync();
+                syncFromCompanionAsync(null);
             }
 
             @Override
@@ -338,16 +384,91 @@ public class MainActivity extends Activity implements SensorEventListener {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAM);
         }
 
+        startLanDiscovery();
         webView.loadUrl("http://127.0.0.1:" + localPort + "/index.html?native=1");
     }
 
-    // ---- USB Model Sync from Desktop Companion (127.0.0.1:8772 via adb reverse) ----
-    private void syncFromCompanionAsync() {
+    private String getSavedLanUrl() {
+        return getSharedPreferences("foldstage", MODE_PRIVATE).getString("lanUrl", "");
+    }
+
+    private static String normalizeBaseUrl(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if (s.isEmpty()) return "";
+        if (!s.startsWith("http://") && !s.startsWith("https://")) s = "http://" + s;
+        if (s.indexOf(':', 8) < 0) s = s + ":8772";
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
+    }
+
+    // ---- Background UDP LAN Discovery Listener (port 8773) ----
+    private void startLanDiscovery() {
+        if (discoveryRunning) return;
+        discoveryRunning = true;
+        Thread t = new Thread(() -> {
+            try {
+                discoverySocket = new DatagramSocket(null);
+                discoverySocket.setReuseAddress(true);
+                discoverySocket.setBroadcast(true);
+                discoverySocket.bind(new InetSocketAddress(UDP_DISCOVERY_PORT));
+                byte[] buf = new byte[1024];
+                while (discoveryRunning) {
+                    DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                    discoverySocket.receive(pkt);
+                    String msg = new String(pkt.getData(), pkt.getOffset(), pkt.getLength(), StandardCharsets.UTF_8);
+                    try {
+                        JSONObject j = new JSONObject(msg);
+                        if (!"foldstage".equals(j.optString("app"))) continue;
+                        int p = j.optInt("port", 8772);
+                        String ip = pkt.getAddress() != null ? pkt.getAddress().getHostAddress() : "";
+                        if (ip == null || ip.isEmpty() || ip.startsWith("127.")) continue;
+                        final String url = "http://" + ip + ":" + p;
+                        if (!url.equals(discoveredLanUrl)) {
+                            discoveredLanUrl = url;
+                            runOnUiThread(() -> {
+                                if (webView != null && pageReady) {
+                                    webView.evaluateJavascript("window.onCompanionDiscovered && window.onCompanionDiscovered(" + JSONObject.quote(url) + ")", null);
+                                }
+                            });
+                        }
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {
+            } finally {
+                try { if (discoverySocket != null) discoverySocket.close(); } catch (Exception ignored) {}
+            }
+        }, "foldstage-udp");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void stopLanDiscovery() {
+        discoveryRunning = false;
+        try { if (discoverySocket != null) discoverySocket.close(); } catch (Exception ignored) {}
+        discoverySocket = null;
+    }
+
+    // ---- USB / LAN Wi-Fi Model Sync from Desktop Companion ----
+    private void syncFromCompanionAsync(final String explicitBase) {
         if (!syncing.compareAndSet(false, true)) return;
         new Thread(() -> {
             try {
-                String remoteStr = httpGetString(COMPANION_BASE + "/v1/models", 4000);
-                if (remoteStr == null) return;
+                List<String> bases = new ArrayList<>();
+                if (explicitBase != null && !explicitBase.isEmpty()) bases.add(explicitBase);
+                bases.add(USB_COMPANION_BASE);
+                if (discoveredLanUrl != null && !discoveredLanUrl.isEmpty() && !bases.contains(discoveredLanUrl)) bases.add(discoveredLanUrl);
+                String manual = getSavedLanUrl();
+                if (!manual.isEmpty() && !bases.contains(manual)) bases.add(manual);
+
+                String chosenBase = null;
+                String remoteStr = null;
+                for (String b : bases) {
+                    String resp = httpGetString(b + "/v1/models", 2500);
+                    if (resp != null) { chosenBase = b; remoteStr = resp; break; }
+                }
+                if (remoteStr == null || chosenBase == null) return;
+                activeCompanionBase = chosenBase;
                 JSONObject remoteJson = new JSONObject(remoteStr);
                 JSONArray remoteModels = remoteJson.optJSONArray("models");
                 if (remoteModels == null) return;
@@ -383,7 +504,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                     Long curVer = localVersions.get(id);
                     boolean needsDownload = (curVer == null || curVer != ver || !new File(modelDir, m.optString("modelFile", "")).isFile());
                     if (needsDownload) {
-                        reportSyncStatus("syncing", "正在同步模型 (" + (i + 1) + "/" + total + "): " + name, i, total);
+                        reportSyncStatus(chosenBase, "syncing", "正在同步模型 (" + (i + 1) + "/" + total + "): " + name, i, total);
                         File tmpDir = new File(modelsDir, id + ".tmp");
                         deleteRecursive(tmpDir);
                         tmpDir.mkdirs();
@@ -391,7 +512,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                         if (files != null) {
                             for (int fIdx = 0; fIdx < files.length(); fIdx++) {
                                 String rel = files.getString(fIdx);
-                                String url = COMPANION_BASE + "/v1/models/" + encodeSeg(id) + "/" + encodePath(rel);
+                                String url = chosenBase + "/v1/models/" + encodeSeg(id) + "/" + encodePath(rel);
                                 File dest = new File(tmpDir, rel);
                                 File parent = dest.getParentFile();
                                 if (parent != null && !parent.exists()) parent.mkdirs();
@@ -424,7 +545,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 String summary = downloaded > 0
                         ? "已同步 " + total + " 个模型（更新 " + downloaded + " 个），离线可用"
                         : "模型已是最新（共 " + total + " 个，离线可用）";
-                reportSyncStatus("done", summary, total, total);
+                reportSyncStatus(chosenBase, "done", summary, total, total);
 
                 if (changed) {
                     runOnUiThread(() -> {
@@ -434,14 +555,14 @@ public class MainActivity extends Activity implements SensorEventListener {
                     });
                 }
             } catch (Exception e) {
-                reportSyncStatus("error", "同步失败：" + e.getMessage(), 0, 0);
+                reportSyncStatus(activeCompanionBase, "error", "同步失败：" + e.getMessage(), 0, 0);
             } finally {
                 syncing.set(false);
             }
         }, "foldstage-sync").start();
     }
 
-    private void reportSyncStatus(String state, String message, int synced, int total) {
+    private void reportSyncStatus(String base, String state, String message, int synced, int total) {
         try {
             JSONObject j = new JSONObject();
             j.put("state", state);
@@ -450,7 +571,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             j.put("totalModels", total);
             j.put("deviceModel", Build.MODEL == null ? "Android" : Build.MODEL);
             byte[] body = j.toString().getBytes(StandardCharsets.UTF_8);
-            HttpURLConnection c = (HttpURLConnection) new URL(COMPANION_BASE + "/v1/device-status").openConnection();
+            HttpURLConnection c = (HttpURLConnection) new URL(base + "/v1/device-status").openConnection();
             c.setRequestMethod("POST");
             c.setConnectTimeout(2000);
             c.setReadTimeout(2000);
@@ -584,6 +705,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     protected void onDestroy() {
+        stopLanDiscovery();
         if (localServer != null) localServer.stop();
         super.onDestroy();
     }

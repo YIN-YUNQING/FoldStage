@@ -190,6 +190,11 @@
     <button class="ctrl" id="btn-local-demo">本地演示节拍</button>
     <button class="ctrl" id="btn-sync-now">同步模型</button>
   </div>
+  <div class="row">
+    <label>局域网</label>
+    <input type="text" id="inp-lan" placeholder="自动发现或填 IP:8772" style="flex:1;min-width:0;background:#0d0f18;color:#f3f0ff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:5px 8px;font-size:11px;" />
+    <button class="ctrl" id="btn-lan-save">连接</button>
+  </div>
   <div class="row"><label>视点左右</label><input type="range" id="sl-trimx" min="-12" max="12" step="0.5" value="0" /><span class="val" id="v-trimx">0cm</span></div>
   <div class="row"><label>视点上下</label><input type="range" id="sl-trimy" min="-12" max="12" step="0.5" value="0" /><span class="val" id="v-trimy">0cm</span></div>
   <div class="row"><label>分层纵深</label><input type="range" id="sl-depth" min="0" max="2.5" step="0.05" value="1" /><span class="val" id="v-depth">1.00×</span></div>
@@ -1459,44 +1464,120 @@ function installLiveHook(m) {
   });
 }
 
-// Companion USB SSE loop (127.0.0.1:8772 via adb reverse)
+// Companion USB + LAN Wi-Fi SSE loop (tries USB 127.0.0.1:8772 first, then auto-discovered / manual LAN IP)
 let usbLinked = false;
+let linkMode = 'offline'; // 'usb' | 'wifi' | 'offline'
+let activeCompanionUrl = COMPANION_BASE;
+let discoveredLanUrl = DEVICE_INFO.discoveredLanUrl || '';
+let manualLanUrl = (IS_NATIVE ? (window.NativeFoldStage.getLanUrl?.() || '') : localStorage.getItem('foldstage.lanUrl')) || '';
+let wakeCompanion = null;
+let activeStreamAbort = null;
+
+function normalizeLanUrl(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return '';
+  if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+  if (!/:\d+(\/|$)/.test(s.replace(/^https?:\/\//i, ''))) s += ':8772';
+  return s.replace(/\/+$/, '');
+}
+
+function getCompanionCandidates() {
+  if (IS_NATIVE && window.NativeFoldStage?.getCompanionCandidates) {
+    try {
+      const arr = JSON.parse(window.NativeFoldStage.getCompanionCandidates());
+      if (Array.isArray(arr) && arr.length) return arr;
+    } catch {}
+  }
+  const list = [{ mode: 'usb', url: COMPANION_BASE }];
+  if (discoveredLanUrl) list.push({ mode: 'wifi', url: discoveredLanUrl });
+  const m = normalizeLanUrl(manualLanUrl);
+  if (m && !list.some(x => x.url === m)) list.push({ mode: 'wifi', url: m });
+  return list;
+}
+
+function triggerCompanionReconnect() {
+  try { activeStreamAbort?.abort(); } catch {}
+  if (wakeCompanion) { const f = wakeCompanion; wakeCompanion = null; f(); }
+}
+
+window.onCompanionDiscovered = (url) => {
+  if (!url) return;
+  discoveredLanUrl = url;
+  const inp = document.getElementById('inp-lan');
+  if (inp && !inp.value) inp.value = url.replace(/^http:\/\//, '');
+  if (!usbLinked) triggerCompanionReconnect();
+};
+
+const lanInp = document.getElementById('inp-lan');
+if (lanInp) lanInp.value = (manualLanUrl || discoveredLanUrl || '').replace(/^http:\/\//, '');
+document.getElementById('btn-lan-save')?.addEventListener('click', () => {
+  const norm = normalizeLanUrl(lanInp.value);
+  manualLanUrl = norm;
+  localStorage.setItem('foldstage.lanUrl', norm);
+  try { window.NativeFoldStage?.setLanUrl?.(norm); } catch {}
+  triggerCompanionReconnect();
+  setStatus(norm ? `尝试局域网连接 ${norm.replace(/^http:\/\//, '')}...` : '已清除手动局域网地址', 'warn');
+});
+
 async function companionLoop() {
   for (;;) {
-    try {
-      const r = await fetch(`${COMPANION_BASE}/v1/events`, { cache: 'no-store' });
-      if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
-      usbLinked = true;
-      usbBadge.textContent = 'USB 已连';
-      if (IS_NATIVE) window.NativeFoldStage.syncModels();
-      else refreshModelList();
+    const candidates = getCompanionCandidates();
+    let connectedOnce = false;
+    for (const c of candidates) {
+      try {
+        const ctl = new AbortController();
+        activeStreamAbort = ctl;
+        const connTimer = setTimeout(() => ctl.abort(), 2200);
+        const r = await fetch(`${c.url}/v1/events`, { cache: 'no-store', signal: ctl.signal });
+        clearTimeout(connTimer);
+        if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+        connectedOnce = true;
+        usbLinked = true;
+        linkMode = c.mode;
+        activeCompanionUrl = c.url;
+        usbBadge.textContent = c.mode === 'usb' ? 'USB 已连' : 'Wi-Fi 已连';
+        if (IS_NATIVE) {
+          if (window.NativeFoldStage.syncModelsFrom) window.NativeFoldStage.syncModelsFrom(c.url);
+          else window.NativeFoldStage.syncModels();
+        } else {
+          refreshModelList();
+        }
 
-      const rd = r.body.getReader(), dec = new TextDecoder();
-      let buf = '';
-      for (;;) {
-        const { value, done } = await rd.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let i;
-        while ((i = buf.indexOf('\n\n')) >= 0) {
-          const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
-          for (const line of chunk.split('\n')) {
-            if (!line.startsWith('data:')) continue;
-            try {
-              const ev = JSON.parse(line.slice(5).trim());
-              if (ev.type === 'music') onMusic(ev);
-              else if (ev.type === 'models_changed') {
-                if (IS_NATIVE) window.NativeFoldStage.syncModels();
-                else refreshModelList();
-              }
-            } catch {}
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+            for (const line of chunk.split('\n')) {
+              if (!line.startsWith('data:')) continue;
+              try {
+                const ev = JSON.parse(line.slice(5).trim());
+                if (ev.type === 'music') onMusic(ev);
+                else if (ev.type === 'models_changed') {
+                  if (IS_NATIVE) {
+                    if (window.NativeFoldStage.syncModelsFrom) window.NativeFoldStage.syncModelsFrom(c.url);
+                    else window.NativeFoldStage.syncModels();
+                  } else refreshModelList();
+                }
+              } catch {}
+            }
           }
         }
-      }
-    } catch {}
+      } catch {}
+      activeStreamAbort = null;
+      if (connectedOnce) break;
+    }
     usbLinked = false;
+    linkMode = 'offline';
     usbBadge.textContent = '离线模式';
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise((resolve) => {
+      const t = setTimeout(() => { wakeCompanion = null; resolve(); }, 2500);
+      wakeCompanion = () => { clearTimeout(t); resolve(); };
+    });
   }
 }
 

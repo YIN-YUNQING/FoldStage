@@ -6,8 +6,10 @@
 //   - Open USB Phone API (/v1/events, /v1/music, /v1/models, /v1/models/:id/*, /v1/device-status)
 //   - Desktop browser live stage preview (/preview/*)
 
+import dgram from 'node:dgram';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AdbManager } from './adb.mjs';
@@ -85,9 +87,41 @@ function sendFile(res, filePath, cors = false) {
   fs.createReadStream(filePath).pipe(res);
 }
 
+function isLoopbackAddr(addr = '') {
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+function getLanInterfaces() {
+  const ifaces = os.networkInterfaces();
+  const out = [];
+  for (const [name, list] of Object.entries(ifaces)) {
+    for (const info of list || []) {
+      if (info.family !== 'IPv4' || info.internal) continue;
+      if (info.address.startsWith('169.254.')) continue;
+      // Compute subnet broadcast address from ip + netmask
+      let bcast = '255.255.255.255';
+      try {
+        const ip = info.address.split('.').map(Number);
+        const mask = info.netmask.split('.').map(Number);
+        bcast = ip.map((v, i) => (v | (~mask[i] & 255))).join('.');
+      } catch {}
+      out.push({ name, address: info.address, broadcast: bcast });
+    }
+  }
+  // Prefer RFC1918 LAN addresses (192.168.*, 10.*, 172.16-31.*) over Tailscale/VPN 100.64.*
+  out.sort((a, b) => {
+    const score = (ip) => ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : 3;
+    return score(a.address) - score(b.address);
+  });
+  return out;
+}
+
 export function createCompanionServer({ port = Number(process.env.FOLDSTAGE_PORT || 8772), projectRoot = PROJECT_ROOT } = {}) {
   const phoneClients = new Set();
   const studioClients = new Set();
+  const udpPort = port + 1; // UDP discovery beacon on 8773
+  let udpSock = null;
+  let udpTimer = null;
 
   let latestMusic = null;
   let latestMusicAt = 0;
@@ -134,17 +168,21 @@ export function createCompanionServer({ port = Number(process.env.FOLDSTAGE_PORT
     onStatus: (st) => broadcastStudio({ type: 'audio', audio: st })
   });
 
-  const getFullStatus = () => ({
-    version: '1.0.0',
-    platform: process.platform,
-    port,
-    phoneClients: phoneClients.size,
-    adb: adb.getStatus(),
-    audio: audio.getStatus(),
-    models: listModels(),
-    phoneSync: phoneSyncStatus,
-    music: latestMusic && Date.now() - latestMusicAt < 5000 ? latestMusic : null
-  });
+  const getFullStatus = () => {
+    const lanIfaces = getLanInterfaces();
+    return {
+      version: '1.0.0',
+      platform: process.platform,
+      port,
+      lanUrls: lanIfaces.map((x) => `http://${x.address}:${port}`),
+      phoneClients: phoneClients.size,
+      adb: adb.getStatus(),
+      audio: audio.getStatus(),
+      models: listModels(),
+      phoneSync: phoneSyncStatus,
+      music: latestMusic && Date.now() - latestMusicAt < 5000 ? latestMusic : null
+    };
+  };
 
   const server = http.createServer(async (req, res) => {
     const urlObj = new URL(req.url, `http://127.0.0.1:${port}`);
@@ -242,7 +280,24 @@ export function createCompanionServer({ port = Number(process.env.FOLDSTAGE_PORT
         return sendJson(res, 200, { ok: true }, true);
       }
 
-      // ---- Studio GUI Control API (/api/*) ----
+      // ---- Direct APK download over LAN Wi-Fi ----
+      if (req.method === 'GET' && route === '/download/foldstage.apk') {
+        const apk = adb.findApkPath();
+        if (!apk) return sendJson(res, 404, { error: 'foldstage.apk not built yet' }, true);
+        res.writeHead(200, {
+          'content-type': 'application/vnd.android.package-archive',
+          'content-disposition': 'attachment; filename="foldstage.apk"',
+          'content-length': fs.statSync(apk).size,
+          'cache-control': 'no-store'
+        });
+        fs.createReadStream(apk).pipe(res);
+        return;
+      }
+
+      // ---- Studio GUI Control API (/api/* — restricted to localhost only for LAN safety) ----
+      if (route.startsWith('/api/') && !isLoopbackAddr(req.socket.remoteAddress)) {
+        return sendJson(res, 403, { error: 'Studio API is restricted to localhost' });
+      }
       if (req.method === 'GET' && route === '/api/events') {
         res.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
@@ -358,15 +413,43 @@ export function createCompanionServer({ port = Number(process.env.FOLDSTAGE_PORT
     start() {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(port, '127.0.0.1', () => {
+        server.listen(port, '0.0.0.0', () => {
           adb.start();
-          console.log(`[FoldStage Companion] Listening on http://127.0.0.1:${port}`);
+          // Start UDP LAN discovery beacon (port 8773) so phones on the same Wi-Fi auto-connect without cables
+          try {
+            udpSock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+            udpSock.on('error', () => {});
+            udpSock.bind(() => {
+              try { udpSock.setBroadcast(true); } catch {}
+              const sendBeacon = () => {
+                const ifaces = getLanInterfaces();
+                if (!ifaces.length || !udpSock) return;
+                const payload = Buffer.from(JSON.stringify({
+                  app: 'foldstage',
+                  port,
+                  host: os.hostname(),
+                  ips: ifaces.map((x) => x.address)
+                }));
+                const targets = new Set(['255.255.255.255', ...ifaces.map((x) => x.broadcast)]);
+                for (const dst of targets) {
+                  try { udpSock.send(payload, 0, payload.length, udpPort, dst); } catch {}
+                }
+              };
+              sendBeacon();
+              udpTimer = setInterval(sendBeacon, 2500);
+              udpTimer.unref?.();
+            });
+          } catch {}
+          const lan = getLanInterfaces().map((x) => `http://${x.address}:${port}`).join(', ');
+          console.log(`[FoldStage Companion] Listening on http://127.0.0.1:${port}${lan ? ` (LAN: ${lan})` : ''}`);
           resolve({ port });
         });
       });
     },
     stop() {
       clearInterval(hb);
+      if (udpTimer) clearInterval(udpTimer);
+      try { udpSock?.close(); } catch {}
       adb.stop();
       audio.stop();
       server.close();
