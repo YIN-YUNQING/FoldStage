@@ -102,3 +102,11 @@ node desktop/start.mjs
 
 MIT License — 见 [LICENSE](LICENSE)。
 Live2D Cubism Core SDK 归 Live2D Inc. 所有，由 `scripts/fetch-deps.mjs` 在本地构建时从官方地址下载，不包含在本仓库中。
+
+---
+
+## 致谢与 Live2D 模型获取
+
+感谢 [Haneoka Live2D](https://haneoka.org/intl/zh-CN/live2d/) 提供便捷的 Live2D 模型资源浏览与下载服务（https://haneoka.org/intl/zh-CN/live2d/）。
+
+从该网站下载得到的 Live2D `.zip` 压缩包无需解压，**直接拖进桌面端「3. Live2D 模型库」窗口即可自动识别并同步到手机使用**。
