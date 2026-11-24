@@ -1011,7 +1011,7 @@ const lastFace = { u: 0, v: 0, ipdPx: 0, W: 1, H: 1, ok: false };
 
 function stopCameraStream() {
   if (activeStream) { for (const tr of activeStream.getTracks()) { try { tr.stop(); } catch {} } activeStream = null; }
-  videoEl.srcObject = null; state.camRunning = false;
+  videoEl.srcObject = null; state.camRunning = false; state.faceDetected = false;
 }
 window.addEventListener('pagehide', stopCameraStream);
 document.addEventListener('visibilitychange', () => {
@@ -1117,7 +1117,7 @@ async function startCameraTracking() {
     videoEl.srcObject = stream; await videoEl.play();
     state.camRunning = true;
     await initDetector();
-    state.mode = 'camera'; state.missCount = 0; syncModeButtons();
+    state.mode = 'camera'; state.missCount = 0; state.faceDetected = false; syncModeButtons();
     setStatus(state.camRot == null ? '判断镜头方向...' : '等待人脸...', 'warn');
   } catch (err) {
     state.lastError = String(err?.message || err);
