@@ -151,7 +151,7 @@
     </div>
     <div class="badges">
       <span class="pill"><span class="dot ok" id="srv-dot"></span><span id="srv-badge">127.0.0.1:8772</span></span>
-      <span class="pill"><span class="dot" id="phone-dot"></span><span id="phone-badge">未连接全息端</span></span>
+      <span class="pill"><span class="dot" id="phone-dot"></span><span id="phone-badge">手机端未连</span></span>
       <button class="btn sm" id="btn-preview">浏览器预览舞台</button>
     </div>
   </header>
@@ -164,7 +164,7 @@
         <span class="tag" id="adb-tag">ADB 检测中</span>
       </div>
       <div class="sub">
-        将手机通过 USB 连接到电脑并允许 USB 调试。插线后自动建立 <code>adb reverse tcp:8772</code> 隧道，可将模型同步到手机离线保存并实时推送音乐节拍。
+        将手机通过 USB 连接到电脑并允许 USB 调试。
       </div>
       <div class="device-box" id="device-box">
         <div class="sub">等待通过 USB 插入 Android 设备...</div>
@@ -184,7 +184,7 @@
         <span class="tag" id="audio-tag">待机</span>
       </div>
       <div class="sub">
-        选择要监听的播放器 App（或选择全部系统音频）。macOS 首次使用需允许「录制系统音频」；Windows 使用 WASAPI 进程回环 + 系统媒体信息。
+        选择要监听的播放器 App（或选择全部系统音频）。macOS 首次使用需允许「录制系统音频」。
       </div>
       <div class="row">
         <select id="app-select"><option value="all">All System Audio</option></select>
@@ -220,7 +220,7 @@
       <span class="sub" id="models-count">0 个模型</span>
     </div>
     <div class="dropzone" id="dropzone">
-      <strong>拖入 Live2D `.zip` 压缩包，或点击选择文件</strong>
+      <strong>拖入 Live2D .zip 压缩包，或点击选择文件</strong>
       <span>自动扫描 <code>*.model3.json</code>、贴图与动作；包含 <code>mtn_play01/play02</code> 演奏动作的模型会自动识别为「音乐演奏模型」（支持站姿演奏与坐姿鼓组）</span>
       <input type="file" id="zip-input" accept=".zip" multiple style="display:none" />
     </div>
@@ -293,8 +293,8 @@ function renderAdb() {
   const connected = state.phoneClients > 0;
   $('phone-dot').className = 'dot ' + (connected ? 'ok' : ready ? 'warn' : '');
   $('phone-badge').textContent = connected
-    ? `手机全息端已连 (${state.phoneClients})`
-    : ready ? 'USB 已连 · 等待打开 App' : '未连接全息端';
+    ? `手机端 (${state.phoneClients})`
+    : ready ? 'USB 已连 · 等待打开 App' : '手机端未连';
 }
 
 function renderPhoneSync() {
