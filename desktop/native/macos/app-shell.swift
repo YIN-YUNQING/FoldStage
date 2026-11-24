@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
       backing: .buffered,
       defer: false
     )
-    window.title = "FoldStage Companion"
+    window.title = "裸眼 3D Live2D 全息舞台 - 折叠设备"
     window.center()
     window.delegate = self
 

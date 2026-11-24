@@ -10,7 +10,7 @@
     <uses-feature android:name="android.hardware.sensor.hinge_angle" android:required="false" />
 
     <application
-        android:label="FoldStage"
+        android:label="裸眼3D全息舞台"
         android:icon="@drawable/icon"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true"
