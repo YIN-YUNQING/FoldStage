@@ -395,7 +395,7 @@ internal static class Program
                 float* inF = (float*)src;
                 if (channels == 1)
                 {
-                    Buffer.MemoryCopy(inF, outF, frames * 4L, frames * 4L);
+                    System.Buffer.MemoryCopy(inF, outF, frames * 4L, frames * 4L);
                 }
                 else
                 {
