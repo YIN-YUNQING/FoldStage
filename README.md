@@ -86,11 +86,11 @@ node desktop/start.mjs
 ### 4. 导入模型并同步到手机
 1. 用 USB 数据线连接手机并在手机上允许「USB 调试」。
 2. 在桌面端点击 **「安装 / 更新 FoldStage APK」** -> **「在手机上启动」**。
-3. 将 Live2D 模型 `.zip` 压缩包拖入桌面端的 **「3. Live2D 模型库」** 窗口：
+3. 将 Live2D 模型 `.zip` 压缩包拖入桌面端的 **「Live2D 模型库」** 窗口：
    - 压缩包内包含 `*.model3.json`、`*.moc3`、`textures/`（以及可选 `motions/`、`expressions/`）即可自动识别。
    - 包含演奏动作（如 `mtn_play01_01.motion3.json` 等）的模型会自动标记为 **音乐演奏**，有音乐播放时自动切入 3D 舞台并踩点演出。
 4. 点击 **「同步模型到手机」**（或等待自动同步完成）。同步完成后拔掉数据线也能离线浏览模型。
-5. 在 **「2. 电脑音源选择与节拍识别」** 中选择你的播放器 App，点击 **「开始识别音乐」**，手机端即可随音乐实时演出！
+5. 在 **「电脑音源选择与节拍识别」** 中选择你的播放器 App，点击 **「开始识别音乐」**，手机端即可随音乐实时演出！
 
 ---
 
@@ -109,4 +109,4 @@ Live2D Cubism Core SDK 归 Live2D Inc. 所有，由 `scripts/fetch-deps.mjs` 在
 
 感谢 [Haneoka Live2D](https://haneoka.org/intl/zh-CN/live2d/) 提供便捷的 Live2D 模型资源浏览与下载服务（https://haneoka.org/intl/zh-CN/live2d/）。
 
-从该网站下载得到的 Live2D `.zip` 压缩包无需解压，**直接拖进桌面端「3. Live2D 模型库」窗口即可自动识别并同步到手机使用**。
+从该网站下载得到的 Live2D `.zip` 压缩包无需解压，**直接拖进桌面端「Live2D 模型库」窗口即可自动识别并同步到手机使用**。
